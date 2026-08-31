@@ -11,6 +11,7 @@ import { AdvancedLineRenderer } from "../render/AdvancedLineRenderer.js";
 import { UIMenu } from "./UIMenu.js";
 import { UIMenuItem } from "./UIMenuItem.js";
 import { UIMenuStack } from "./UIMenuStack.js";
+import { GAMEPAD_BUTTON } from "../config/controls.js";
 
 export class PausePanel {
   constructor({ app, onResume, onSettings, onExit, consumeGameplayInput }) {
@@ -185,15 +186,15 @@ export class PausePanel {
     if (!pad) return;
     const prior = this.previous ?? [];
     const edge = (index) => !!pad.buttons[index]?.pressed && !prior[index];
-    if (edge(12)) {
+    if (edge(GAMEPAD_BUTTON.DPAD_UP)) {
       this.consumeGameplayInput?.(["hardDrop"]);
       this.menuStack.navigate("up", "gamepad");
-    } else if (edge(13)) {
+    } else if (edge(GAMEPAD_BUTTON.DPAD_DOWN)) {
       this.consumeGameplayInput?.(["softDrop"]);
       this.menuStack.navigate("down", "gamepad");
-    } else if (edge(0)) this.activateSelection(["ccw"], "gamepad");
-    else if (edge(1)) this.resume(["cw"]);
-    else if (edge(9)) this.resume(["pause"]);
+    } else if (edge(GAMEPAD_BUTTON.A)) this.activateSelection(["ccw"], "gamepad");
+    else if (edge(GAMEPAD_BUTTON.B)) this.resume(["cw"]);
+    else if (edge(GAMEPAD_BUTTON.START)) this.resume(["pause"]);
     this.previous = pad.buttons.map((button) => !!button.pressed);
   }
   open() {

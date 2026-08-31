@@ -18,17 +18,38 @@ export const KEYBINDS = {
   hold: ["c", "Shift"],
   pause: ["p", "Escape"],
 };
+// W3C standard gamepad mapping. Keep browser button indices in one place.
+export const GAMEPAD_BUTTON = Object.freeze({
+  A: 0,
+  B: 1,
+  X: 2,
+  Y: 3,
+  LEFT_BUMPER: 4,
+  RIGHT_BUMPER: 5,
+  LEFT_TRIGGER: 6,
+  RIGHT_TRIGGER: 7,
+  BACK: 8,
+  START: 9,
+  LEFT_STICK: 10,
+  RIGHT_STICK: 11,
+  DPAD_UP: 12,
+  DPAD_DOWN: 13,
+  DPAD_LEFT: 14,
+  DPAD_RIGHT: 15,
+  HOME: 16,
+});
+
 export const GAMEPAD_BINDS = {
-  hardDrop: 12,
-  release: 2,
-  softDrop: 13,
-  left: 14,
-  right: 15,
-  ccw: 0,
-  cw: 1,
-  rotate180: 3,
-  hold: [5, 7],
-  pause: 9,
+  hardDrop: GAMEPAD_BUTTON.DPAD_UP,
+  release: GAMEPAD_BUTTON.X,
+  softDrop: GAMEPAD_BUTTON.DPAD_DOWN,
+  left: GAMEPAD_BUTTON.DPAD_LEFT,
+  right: GAMEPAD_BUTTON.DPAD_RIGHT,
+  ccw: GAMEPAD_BUTTON.A,
+  cw: GAMEPAD_BUTTON.B,
+  rotate180: GAMEPAD_BUTTON.Y,
+  hold: [GAMEPAD_BUTTON.RIGHT_BUMPER, GAMEPAD_BUTTON.RIGHT_TRIGGER],
+  pause: GAMEPAD_BUTTON.START,
 };
 
 // Standard Gamepad API button labels used by the controls screen. Bindings

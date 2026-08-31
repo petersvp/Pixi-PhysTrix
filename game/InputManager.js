@@ -5,7 +5,7 @@
  * Its exports are consumed by the modular application runtime.
  */
 
-import { KEYBINDS, GAMEPAD_BINDS } from "../config/controls.js";
+import { GAMEPAD_BUTTON, KEYBINDS, GAMEPAD_BINDS } from "../config/controls.js";
 export class InputManager {
   constructor(target = window) {
     this.target = target;
@@ -60,7 +60,7 @@ export class InputManager {
     hold("ccw", GAMEPAD_BINDS.ccw);
     hold("cw", GAMEPAD_BINDS.cw);
     hold("rotate180", GAMEPAD_BINDS.rotate180);
-    if (edge(0) || edge(GAMEPAD_BINDS.pause)) this.gamepadPressed.add("start");
+    if (edge(GAMEPAD_BUTTON.A) || edge(GAMEPAD_BINDS.pause)) this.gamepadPressed.add("start");
     if (GAMEPAD_BINDS.hold.some(edge)) this.gamepadPressed.add("hold");
     if (pad.buttons[GAMEPAD_BINDS.left]?.pressed) this.down.add("ArrowLeft");
     else this.down.delete("ArrowLeft");

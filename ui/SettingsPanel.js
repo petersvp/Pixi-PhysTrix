@@ -10,6 +10,7 @@ import {
   GAMEPAD_BINDS,
   applyControlSnapshot,
   controlSnapshot,
+  GAMEPAD_BUTTON,
   gamepadBindingLabel,
 } from "../config/controls.js";
 import { savePersistentSettings } from "../game/Settings.js";
@@ -45,6 +46,7 @@ const labelFor = (action) =>
     softDrop: "SOFT DROP",
     hardDrop: "HARD DROP",
   })[action] || action.toUpperCase();
+const TIMING_KEYS = new Set(TIMINGS.map(([, key]) => key));
 
 export class SettingsPanel {
   constructor({ app, settings, onBack }) {
@@ -130,7 +132,7 @@ export class SettingsPanel {
       .roundRect(230, 30, 440, 820, 14)
       .fill({ color: COLORS.PANEL_BG, alpha: 0.86 });
     glass.filterArea = new PIXI.Rectangle(230, 30, 440, 820);
-    glass.filters = [new PIXI.filters.BackdropBlurFilter({ strength: 32 })];
+    glass.filters = [new PIXI.filters.BackdropBlurFilter({ strength: 32, quality: 8 })];
     this.root.addChild(glass);
     this.frame(230, 30, 440, 820);
     this.button("X", 246, 48, 34, () => this.cancel(), { navigable: false });
@@ -202,8 +204,8 @@ export class SettingsPanel {
     );
     value.anchor.set(1, 0);
     const focusOutline = new PIXI.Graphics()
-      .roundRect(242, y - 7, 388, 31, 6)
-      .stroke({ width: 2, color: 0xff9d22, alpha: 0.96 });
+      .roundRect(242, y - 7, 420, 31, 6)
+      .stroke({ width: 3, color: 0xff9d22, alpha: 0.66 });
     focusOutline.visible = false;
     focusOutline.eventMode = "none";
     this.root.addChild(focusOutline);
@@ -230,7 +232,9 @@ export class SettingsPanel {
       new UIMenuItem({
         id: key,
         view: track,
-        onTrigger: (item) => item.setHeld(!item.held),
+        // Timing sliders are direct controls: when selected, Left/Right
+        // changes them immediately. They intentionally do not enter held mode.
+        onTrigger: () => {},
         onNavigate: (direction) => {
           const step = Math.max(1, Math.round((max - min) / 100));
           this.settings[key] = Math.max(
@@ -240,14 +244,25 @@ export class SettingsPanel {
               this.settings[key] + (direction === "right" ? step : -step),
             ),
           );
-          this.draw();
+          this.redrawKeepingFocus();
         },
         render: ({ selected, held }) => {
-          focusOutline.visible = selected || held;
-          track.alpha = held ? 1 : selected ? 0.9 : 0.68;
+          focusOutline.visible = selected;
+          track.alpha = selected ? 1 : 0.68;
         },
       }),
     );
+  }
+  redrawKeepingFocus() {
+    const focusedIndex = this.menu?.focusedIndex ?? 0;
+    this.draw();
+    this.menuStack.activate(this.menu, focusedIndex);
+  }
+  adjustFocusedTiming(direction, source) {
+    const item = this.menuStack.activeMenu?.focusedItem;
+    if (!item || !TIMING_KEYS.has(item.id)) return false;
+    item.navigate(direction, { source });
+    return true;
   }
   bindRow(action, y) {
     this.text(labelFor(action), 250, y + 6, 12);
@@ -284,9 +299,9 @@ export class SettingsPanel {
     } else if (event.key === "ArrowDown") {
       this.menuStack.navigate("down", "keyboard");
     } else if (event.key === "ArrowLeft") {
-      this.menuStack.navigate("left", "keyboard");
+      if (!this.adjustFocusedTiming("left", "keyboard")) this.menuStack.navigate("left", "keyboard");
     } else if (event.key === "ArrowRight") {
-      this.menuStack.navigate("right", "keyboard");
+      if (!this.adjustFocusedTiming("right", "keyboard")) this.menuStack.navigate("right", "keyboard");
     } else if (event.key === "Enter" || event.key === " ") {
       this.menuStack.trigger("keyboard");
     }
@@ -322,11 +337,13 @@ export class SettingsPanel {
       this.draw();
       return;
     }
-    if (edge(12)) this.menuStack.navigate("up", "gamepad");
-    else if (edge(13)) this.menuStack.navigate("down", "gamepad");
-    else if (edge(14)) this.menuStack.navigate("left", "gamepad");
-    else if (edge(15)) this.menuStack.navigate("right", "gamepad");
-    else if (edge(0)) this.menuStack.trigger("gamepad");
+    if (edge(GAMEPAD_BUTTON.DPAD_UP)) this.menuStack.navigate("up", "gamepad");
+    else if (edge(GAMEPAD_BUTTON.DPAD_DOWN)) this.menuStack.navigate("down", "gamepad");
+    else if (edge(GAMEPAD_BUTTON.DPAD_LEFT)) {
+      if (!this.adjustFocusedTiming("left", "gamepad")) this.menuStack.navigate("left", "gamepad");
+    } else if (edge(GAMEPAD_BUTTON.DPAD_RIGHT)) {
+      if (!this.adjustFocusedTiming("right", "gamepad")) this.menuStack.navigate("right", "gamepad");
+    } else if (edge(GAMEPAD_BUTTON.A)) this.menuStack.trigger("gamepad");
   }
   open() {
     console.log("[PhysTrix] Settings menu opened");

@@ -8,6 +8,7 @@
  */
 
 import { COLORS } from "../config/colors.js";
+import { GAMEPAD_BUTTON } from "../config/controls.js";
 import { MINO_SKINS } from "../config/skinCatalog.js";
 import {
   GAME_VIEWPORT_HEIGHT,
@@ -799,13 +800,13 @@ export class StartMenu {
     if (!pad) return;
     const previous = this.previousGamepadButtons || [];
     const edge = (index) => !!pad.buttons[index]?.pressed && !previous[index];
-    if (edge(12)) this.stack.navigate("up", "gamepad");
-    else if (edge(13)) this.stack.navigate("down", "gamepad");
-    else if (edge(14)) this.stack.navigate("left", "gamepad");
-    else if (edge(15)) this.stack.navigate("right", "gamepad");
-    else if (edge(0)) this.stack.trigger("gamepad");
-    else if (edge(1)) this.stack.moveActive(-1);
-    else if (edge(9)) this.start();
+    if (edge(GAMEPAD_BUTTON.DPAD_UP)) this.stack.navigate("up", "gamepad");
+    else if (edge(GAMEPAD_BUTTON.DPAD_DOWN)) this.stack.navigate("down", "gamepad");
+    else if (edge(GAMEPAD_BUTTON.DPAD_LEFT)) this.stack.navigate("left", "gamepad");
+    else if (edge(GAMEPAD_BUTTON.DPAD_RIGHT)) this.stack.navigate("right", "gamepad");
+    else if (edge(GAMEPAD_BUTTON.A)) this.stack.trigger("gamepad");
+    else if (edge(GAMEPAD_BUTTON.B)) this.stack.moveActive(-1);
+    else if (edge(GAMEPAD_BUTTON.START)) this.start();
     this.previousGamepadButtons = pad.buttons.map((button) => !!button.pressed);
   }
   start() {
