@@ -8,6 +8,12 @@
 
 export const GAME_VIEWPORT_WIDTH = 900;
 export const GAME_VIEWPORT_HEIGHT = 760;
+// Persistent gameplay top-bar layout, expressed in renderer screen pixels.
+export const TOP_BAR_MARGIN = 16;
+export const TOP_BAR_BUTTON_SIZE = 44;
+// Portrait gameplay intentionally extends this far beyond each screen edge.
+// It prevents a padded desktop-canvas look while preserving the attached rails.
+export const PORTRAIT_PLAYFIELD_HORIZONTAL_BLEED = 12;
 export const SHOW_GARBAGE_METER = false;
 export const SHOW_ITEM_PANEL = false;
 
@@ -33,6 +39,18 @@ export const START_MENU_VERTICAL_ROW_GAP = 32;
 export const START_MENU_VERTICAL_START_TO_FOOTER_GAP = 16;
 export const START_MENU_HORIZONTAL_TOP_ROW_Y = 230;
 export const START_MENU_HORIZONTAL_ACTION_ROW_GAP = 128;
+
+// Start-scene motion is intentionally restrained so it does not compete with
+// menu navigation or the logo. Ambient polyominoes are created once per scene.
+export const START_MENU_SECTION_IN_DURATION_MS = 260;
+export const START_MENU_SECTION_OUT_DURATION_MS = 170;
+export const START_MENU_SECTION_STAGGER_MS = 55;
+export const START_MENU_SECTION_START_SCALE = 0.86;
+export const START_MENU_AMBIENT_POLYOMINO_COUNT = 20;
+export const START_MENU_AMBIENT_MIN_SPEED = 12;
+export const START_MENU_AMBIENT_MAX_SPEED = 28;
+export const START_MENU_AMBIENT_CELL_SIZE = 32;
+export const START_MENU_AMBIENT_ALPHA = 0.1;
 
 // Playfield frame and half-particle glow tuning.
 export const PLAYFIELD_OUTER_LINE_WIDTH = 10;
@@ -68,6 +86,7 @@ export const HOLD_PREVIEW_Y = 40;
 export const HOLD_PREVIEW_SLOT_BOTTOM = 12;
 
 export const NEXT_PANEL_X_OFFSET = 4;
+
 // When the queue is taller than a short custom playfield, detach it by this
 // many rendered board cells and render it as a complete rounded panel.
 export const NEXT_PANEL_DETACHED_BLOCK_OFFSET = 1;
@@ -86,11 +105,12 @@ export const HUD_STATS_RIGHT_PADDING = 30;
 export const HUD_STATS_Y_OFFSET = 36;
 export const HUD_STATS_ROW_SPACING = 78;
 export const HUD_STATS_VALUE_Y_OFFSET = 19;
-export const HUD_STATS_CONTENT_HEIGHT = 210;
+export const HUD_STATS_CONTENT_HEIGHT = 288;
 
 export const ITEM_PANEL_WIDTH = 265;
 export const ITEM_PANEL_HEIGHT = 58;
 export const ITEM_PANEL_Y_OFFSET = 5;
+
 // Detach the item bar below a narrow field when its fixed width would exceed
 // the available playfield width and make a fused bottom join look incorrect.
 export const ITEM_PANEL_DETACHED_BLOCK_OFFSET = 0.15;
@@ -118,7 +138,18 @@ export const START_MESSAGE_SHADOW_ALPHA = 0.8;
 export const GAME_OVER_TITLE_SHADOW_DISTANCE = 5;
 export const GAME_OVER_TITLE_SHADOW_BLUR = 32;
 export const GAME_OVER_TITLE_SHADOW_ALPHA = 0.85;
-export const GAME_OVER_RESTART_SHADOW_DISTANCE = 3;
-export const GAME_OVER_RESTART_SHADOW_BLUR = 32;
-export const GAME_OVER_RESTART_SHADOW_ALPHA = 0.8;
 export const GAME_OVER_SHADOW_PADDING = 48;
+
+// Game-over report panel layout. Rows are generated from the completed game
+// summary, so the panel grows only as far as the recorded achievements need.
+export const GAME_OVER_PANEL_WIDTH = 308;
+export const GAME_OVER_PANEL_PADDING = 28;
+export const GAME_OVER_PANEL_MIN_HEIGHT = 280;
+export const GAME_OVER_PANEL_ROW_HEIGHT = 25;
+export const GAME_OVER_SCORE_FONT_SIZE = 36;
+export const GAME_OVER_SCORE_SUFFIX_FONT_SIZE = 16;
+export const GAME_OVER_DETAIL_FONT_SIZE = 16;
+export const GAME_OVER_ENTER_DURATION_MS = 260;
+export const GAME_OVER_ENTER_START_SCALE = 0.86;
+export const COUNTDOWN_ENTER_DURATION_MS = 210;
+export const COUNTDOWN_ENTER_START_SCALE = 0.45;

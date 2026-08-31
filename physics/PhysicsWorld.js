@@ -11,8 +11,8 @@ import {
   PHYSICS_FRICTION,
   PHYSICS_BOUNCINESS,
   PHYSICS_MASS,
-  PHYSICS_RELEASE_MASS_GAIN_PER_SECOND,
-  PHYSICS_RELEASE_MASS_RESET_PER_SECOND,
+  PHYSICS_RELEASE_MASS_MULTIPLIER,
+  PHYSICS_RELEASE_MASS_RESET_DURATION_MS,
   VANISH_DURATION_MS,
 } from "../config/gameplayConstants.js";
 import { FrameRuleScanner } from "./FrameRuleScanner.js";
@@ -55,8 +55,9 @@ export class PhysicsWorld {
       const bodyB = contact.GetFixtureB()?.GetBody?.();
       [bodyA, bodyB].forEach((body) => {
         const data = body?.GetUserData?.();
-        if (!data || typeof data.releaseMassBoost !== "number") return;
+        if (!data?.releaseActive) return;
         data.contacting = true;
+        data.releaseMassTouched = true;
       });
     };
     listener.EndContact = (contact) => {
@@ -64,7 +65,7 @@ export class PhysicsWorld {
       const bodyB = contact.GetFixtureB()?.GetBody?.();
       [bodyA, bodyB].forEach((body) => {
         const data = body?.GetUserData?.();
-        if (!data || typeof data.releaseMassBoost !== "number") return;
+        if (!data?.releaseActive) return;
         data.contacting = false;
       });
     };
@@ -76,38 +77,47 @@ export class PhysicsWorld {
     if (!data) return;
     data.releaseMassBoost = Math.max(0, boost);
     for (let fixture = body.GetFixtureList(); fixture; fixture = fixture.GetNext()) {
-      fixture.density = this.material.density + data.releaseMassBoost;
+      const density = this.material.density + data.releaseMassBoost;
+      // `fixture.density = value` only creates a JavaScript-side property in
+      // Box2DWeb. SetDensity updates the native fixture mass used by contact
+      // resolution; ResetMassData then updates the compound body's inertia.
+      if (typeof fixture.SetDensity === "function") fixture.SetDensity(density);
+      else fixture.m_density = density;
     }
     body.ResetMassData();
   }
   updateReleaseMass(body, dtMs) {
     const data = body.GetUserData();
     if (!data || !data.releaseActive) return;
-    const dt = dtMs / 1000;
-    if (data.contacting) {
-      this.setReleaseMass(
-        body,
-        Math.max(
-          0,
-          data.releaseMassBoost -
-            dt * PHYSICS_RELEASE_MASS_RESET_PER_SECOND,
-        ),
-      );
-      return;
-    }
+    // Contact is a one-way state change: a released piece remains heavy
+    // through the fall, then smoothly normalizes even if it bounces away.
+    if (!data.releaseMassTouched) return;
+    const resetDuration = Math.max(1, PHYSICS_RELEASE_MASS_RESET_DURATION_MS);
+    data.releaseMassResetElapsed = Math.min(
+      resetDuration,
+      (data.releaseMassResetElapsed || 0) + dtMs,
+    );
+    const resetProgress =
+      data.releaseMassResetElapsed / resetDuration;
     this.setReleaseMass(
       body,
-      data.releaseMassBoost +
-        dt * PHYSICS_RELEASE_MASS_GAIN_PER_SECOND,
+      Math.max(
+        0,
+        data.releaseMassInitialBoost * (1 - resetProgress),
+      ),
     );
+    if (resetProgress >= 1) data.releaseActive = false;
   }
   beginReleaseMass(body) {
     const data = body?.GetUserData?.();
     if (!data) return;
     data.releaseActive = true;
     data.contacting = false;
-    data.releaseMassBoost = 0;
-    this.setReleaseMass(body, 0);
+    data.releaseMassTouched = false;
+    data.releaseMassResetElapsed = 0;
+    data.releaseMassInitialBoost =
+      this.material.density * (PHYSICS_RELEASE_MASS_MULTIPLIER - 1);
+    this.setReleaseMass(body, data.releaseMassInitialBoost);
   }
   getControlledMassBoost() {
     const data = this.controlBody?.GetUserData?.();
@@ -141,7 +151,8 @@ export class PhysicsWorld {
       const body = fixture.GetBody();
       return (
         this.bodies.includes(body) &&
-        body.GetType() === Dynamics.b2Body.b2_dynamicBody
+        (body.GetType() === Dynamics.b2Body.b2_dynamicBody ||
+          body.GetType() === Dynamics.b2Body.b2_staticBody)
       );
     });
   }
@@ -288,9 +299,63 @@ export class PhysicsWorld {
     data.releaseActive = false;
     data.releaseMassBoost = 0;
     data.contacting = false;
+    data.releaseMassTouched = false;
+    data.releaseMassInitialBoost = 0;
+    data.releaseMassResetElapsed = 0;
     body.SetUserData(data);
     this.bodies.push(body);
     return body;
+  }
+  spawnTrash(cells) {
+    const {
+      Dynamics,
+      Collision: { Shapes },
+      Common: { Math },
+    } = this.api;
+    cells.forEach(({ x, y, color, trash }) => {
+      const def = new Dynamics.b2BodyDef();
+      def.type = Dynamics.b2Body.b2_staticBody;
+      def.position.Set(x + 0.5, y + 0.5);
+      const body = this.world.CreateBody(def);
+      const cell = {
+        x,
+        y,
+        trash: Boolean(trash),
+        marked: false,
+        visualLinks: {
+          top: false,
+          right: false,
+          bottom: false,
+          left: false,
+          topLeft: false,
+          topRight: false,
+          bottomRight: false,
+          bottomLeft: false,
+        },
+        broken: { top: false, right: false, bottom: false, left: false },
+      };
+      const shape = new Shapes.b2PolygonShape();
+      shape.SetAsOrientedBox(0.5, 0.5, new Math.b2Vec2(0, 0), 0);
+      const fixture = new Dynamics.b2FixtureDef();
+      fixture.shape = shape;
+      fixture.friction = this.material.friction;
+      fixture.restitution = this.material.restitution;
+      body.CreateFixture(fixture).SetUserData(cell);
+      body.SetUserData({
+        color,
+        trash: true,
+        cells: [cell],
+        origin: { x: x + 0.5, y: y + 0.5 },
+      });
+      this.bodies.push(body);
+    });
+  }
+  hasTrash() {
+    return this.bodies.some((body) => body.GetUserData()?.trash);
+  }
+  clearLockedBodies() {
+    this.bodies.forEach((body) => this.world.DestroyBody(body));
+    this.bodies = [];
   }
   scan(now) {
     const rows = this.scanner.scan();
@@ -432,7 +497,6 @@ export class PhysicsWorld {
   }
   clear() {
     this.destroyControlled();
-    this.bodies.forEach((b) => this.world.DestroyBody(b));
-    this.bodies = [];
+    this.clearLockedBodies();
   }
 }

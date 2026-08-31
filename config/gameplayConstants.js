@@ -27,6 +27,25 @@ export const DEBUG_NO_GAME_OVER = false;
 export const CELL = 30;
 export const FRAMERULE_INTERVAL = 20;
 
+// Direct-touch gesture thresholds are CSS pixels so the controls feel the
+// same on a high-DPI phone and a desktop browser window.
+export const TOUCH_DRAG_DEAD_ZONE_PX = 8;
+export const TOUCH_SWIPE_MIN_DISTANCE_PX = 52;
+// A downward gesture faster than this is a hard drop. A slower descent moves
+// through rows as soft drop, including the remaining distance on release.
+export const TOUCH_HARD_DROP_MAX_SWIPE_MS = 260;
+// A long soft-drop gesture may end with a deliberate quick flick. Sample the
+// final window rather than relying on display-frame count, then hard drop when
+// its downward velocity reaches this threshold.
+export const TOUCH_HARD_DROP_FLICK_WINDOW_MS = 120;
+export const TOUCH_HARD_DROP_FLICK_SPEED_PX_PER_SECOND = 700;
+// Slow touch drop targets the current finger row directly. Keeping one grid
+// row below the finger preserves visibility of the controlled polyomino.
+export const TOUCH_SOFT_DROP_FINGER_OFFSET_ROWS = -2;
+// A slow touch drag must travel this far downward before it starts feeding a
+// soft-drop target. This avoids incidental finger drift starting a descent.
+export const TOUCH_SOFT_DROP_START_DISTANCE_PX = 80;
+
 // Gravity is capped once the Guideline curve reaches one simulation frame.
 // Further levels reduce lock time instead, keeping high-level play difficult.
 export const MIN_GRAVITY_INTERVAL_MS = 16;
@@ -61,11 +80,10 @@ export const PHYSICS_RELEASE_SPAWN_MAX_WAIT_MS = 2500;
 // Physics material controls. Box2D uses density rather than a direct mass;
 // this mass value is therefore supplied as fixture density for equal minos.
 export const PHYSICS_MASS = 1;
-// Release temporarily adds more mass to the dropped polyomino to reward the
-// input. The piece gains this much extra density per second until it touches
-// anything, then it interpolates back to its default density on contact.
-export const PHYSICS_RELEASE_MASS_GAIN_PER_SECOND = 200.5;
-export const PHYSICS_RELEASE_MASS_RESET_PER_SECOND = 400.5;
+// Releasing starts a polyomino at the configured multiple of its fixture
+// density. Its first collision starts a timed return to the base density.
+export const PHYSICS_RELEASE_MASS_MULTIPLIER = 5;
+export const PHYSICS_RELEASE_MASS_RESET_DURATION_MS = 2000;
 export const PHYSICS_SLIPPERINESS = 0.8;
 export const PHYSICS_FRICTION = 1 - PHYSICS_SLIPPERINESS;
 export const PHYSICS_BOUNCINESS = 0.3;

@@ -25,9 +25,10 @@ const lightenColor = (color, amount) => {
 };
 
 export class PhysicsRenderer {
-  constructor(layer, material) {
+  constructor(layer, material, trashMaterial = material) {
     this.layer = layer;
     this.quads = new MinoQuadRenderer(material);
+    this.trashQuads = new MinoQuadRenderer(trashMaterial);
     this.bodyLayer = new PIXI.Container();
     this.bodyLayer.label = "physicsBodyLayer";
     this.markedLayer = new PIXI.Container();
@@ -56,7 +57,7 @@ export class PhysicsRenderer {
         this.bodyLayer.addChild(node);
       }
       if (node.visualSignature !== signature) {
-        this.quads.draw(
+        (data.trash ? this.trashQuads : this.quads).draw(
           node,
           data.cells,
           data.color,
@@ -136,6 +137,7 @@ export class PhysicsRenderer {
   visualSignature(data) {
     return JSON.stringify([
       data.color,
+      data.trash,
       data.origin,
       data.cells.map((cell) => [
         cell.x,

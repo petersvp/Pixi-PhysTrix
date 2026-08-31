@@ -27,6 +27,7 @@ import {
 import {
   GAME_VIEWPORT_HEIGHT,
   GAME_VIEWPORT_WIDTH,
+  PORTRAIT_PLAYFIELD_HORIZONTAL_BLEED,
 } from "../config/uiConstants.js";
 import {
   SPIN_OUTLINE_PARTICLE_COUNT,
@@ -34,6 +35,9 @@ import {
 } from "../config/effectsConstants.js";
 import { ReflectionCapture } from "../render/ReflectionCapture.js";
 import { Playfield } from "./Playfield.js";
+import { TouchController } from "./TouchController.js";
+import { TrashSystem } from "./TrashSystem.js";
+import { GameStatistics } from "./GameStatistics.js";
 
 // The reflection shader path remains authored and available, but its separate
 // mino-only render-texture capture pass is deliberately disabled for now.
@@ -60,12 +64,15 @@ export class GameManager {
     this.score = 0;
     this.lines = 0;
     this.level = 1;
+    this.elapsedMs = 0;
+    this.statistics = new GameStatistics();
     this.startLevel = 0;
     this.gravity = 0;
     this.horizontalDirection = 0;
     this.horizontalRepeat = 0;
     this.horizontalInitial = true;
     this.softDropRepeat = 0;
+    this.touchSoftDropTargetY = null;
     this.grounded = false;
     this.lockTimer = 0;
     this.lockResets = 0;
@@ -91,6 +98,8 @@ export class GameManager {
       cell: CELL,
     });
     this.playfield.loadSkin(this.session?.skin);
+    this.playfield.setHoldAction(() => this.holdPiece());
+    this.trash = new TrashSystem(this.session?.trash);
     this.gameplay.attach(this);
     this.reflectionCapture = ENABLE_REFLECTION_CAPTURE
       ? new ReflectionCapture(
@@ -100,6 +109,25 @@ export class GameManager {
         )
       : null;
     this.resize = () => {
+      if (innerHeight > innerWidth) {
+        // Portrait is a dedicated camera fit, not a scaled-down 900px desktop
+        // canvas. Fit the visible HOLD/board/NEXT composition edge-to-edge;
+        // glow may naturally extend past either viewport edge.
+        const layout = this.playfield.layout;
+        const left = Math.min(layout.hold.x, layout.stats.x, layout.x);
+        const right = Math.max(
+          layout.x + layout.scaledWidth,
+          layout.next.x + layout.next.width,
+        );
+        const bleed = PORTRAIT_PLAYFIELD_HORIZONTAL_BLEED;
+        const scale = (innerWidth + bleed * 2) / (right - left);
+        this.root.scale.set(scale);
+        this.root.position.set(
+          -left * scale - bleed,
+          (innerHeight - GAME_VIEWPORT_HEIGHT * scale) / 2,
+        );
+        return;
+      }
       const s = Math.min(
         innerWidth / GAME_VIEWPORT_WIDTH,
         innerHeight / GAME_VIEWPORT_HEIGHT,
@@ -114,6 +142,7 @@ export class GameManager {
     this.resize();
     this.tickCallback = () => this.tick(this.app.ticker.deltaMS);
     this.app.ticker.add(this.tickCallback);
+    this.touch = new TouchController(this);
     this.startCountdownMS = 3500;
     this.startCountdownStage = -1;
     this.updateStartCountdown();
@@ -122,8 +151,12 @@ export class GameManager {
   start() {
     this.board.reset();
     this.gameplay.reset(this);
+    this.trash = new TrashSystem(this.session?.trash);
+    this.gameplay.spawnTrash?.(this, this.trash);
     this.queue = new PieceQueue(Math.random, this.session?.polyominoPreset);
     this.score = this.lines = 0;
+    this.elapsedMs = 0;
+    this.statistics.reset();
     // The menu exposes Guideline-style starting levels 0 through 15, while
     // the internal scoring and gravity formulas use level 1 as their base.
     const requestedStartLevel = Number(this.session?.startLevel ?? 0);
@@ -137,6 +170,7 @@ export class GameManager {
     this.horizontalRepeat = 0;
     this.horizontalInitial = true;
     this.softDropRepeat = 0;
+    this.touchSoftDropTargetY = null;
     this.gravity = 0;
     this.grounded = false;
     this.lockTimer = 0;
@@ -152,6 +186,8 @@ export class GameManager {
   }
   spawn(type = this.queue.next()) {
     this.active = new Polyomino(type);
+    this.statistics.recordSpawn(this.active.type);
+    this.touchSoftDropTargetY = null;
     this.active.id = this.id++;
     this.irsPending = true;
     this.gameplay.onSpawn(this, this.active);
@@ -220,7 +256,7 @@ export class GameManager {
     return true;
   }
   holdPiece() {
-    if (!this.active || !this.canHold) return;
+    if (!this.canAcceptDirectControl() || !this.canHold) return false;
     const outgoing = this.active.definition;
     if (this.hold) {
       const incoming = this.hold;
@@ -232,6 +268,59 @@ export class GameManager {
     }
     this.canHold = false;
     this.sound.hold();
+    return true;
+  }
+  releaseActive() {
+    if (!this.canAcceptDirectControl()) return false;
+    return Boolean(this.gameplay.release(this));
+  }
+  canAcceptDirectControl() {
+    return (
+      this.state === GameState.PLAYING &&
+      !!this.active &&
+      !this.gameplay.isControlFrozen(this)
+    );
+  }
+  playfieldCellScreenSize() {
+    return CELL * this.playfield.layout.scale * this.root.scale.x;
+  }
+  moveActiveToX(targetX) {
+    if (!this.canAcceptDirectControl()) return false;
+    const direction = Math.sign(targetX - this.active.x);
+    let moved = false;
+    while (direction && this.active.x !== targetX) {
+      if (!this.active.move(this.board, direction, 0)) break;
+      moved = true;
+    }
+    this.updateLockState(moved);
+    return moved;
+  }
+  hardDrop() {
+    if (!this.canAcceptDirectControl()) return false;
+    this.touchSoftDropTargetY = null;
+    const hardDropStart = this.active.cells();
+    while (this.active.move(this.board, 0, 1)) this.score += 2;
+    this.playfield.effects.hardDropTrail(
+      hardDropStart,
+      this.active.cells(),
+      this.active.color,
+    );
+    this.playfield.hardDropPunch();
+    this.lock();
+    return true;
+  }
+  softDrop() {
+    if (!this.canAcceptDirectControl()) return false;
+    const moved = this.active.move(this.board, 0, 1);
+    if (moved) this.score += 1;
+    this.updateLockState(moved);
+    return moved;
+  }
+  setTouchSoftDropTargetY(targetY) {
+    if (!this.canAcceptDirectControl()) return false;
+    this.touchSoftDropTargetY = Math.max(this.active.y, targetY);
+    // Let tick() perform every actual descent at the configured SDF rate.
+    return true;
   }
   gameOver({ preserveActive = false } = {}) {
     if (DEBUG_NO_GAME_OVER) return false;
@@ -240,7 +329,10 @@ export class GameManager {
       this.active = null;
     }
     this.state = GameState.GAME_OVER;
-    this.playfield.hud.showGameOver();
+    this.playfield.hud.showGameOver(
+      this.score,
+      this.statistics.snapshot(this.elapsedMs),
+    );
     return true;
   }
   setPaused(paused) {
@@ -349,15 +441,7 @@ export class GameManager {
       this.state === GameState.PLAYING &&
       !this.gameplay.isControlFrozen(this)
     ) {
-      const hardDropStart = this.active.cells();
-      while (this.active.move(this.board, 0, 1)) this.score += 2;
-      this.playfield.effects.hardDropTrail(
-        hardDropStart,
-        this.active.cells(),
-        this.active.color,
-      );
-      this.playfield.hardDropPunch();
-      this.lock();
+      this.hardDrop();
     }
     // Entering pause belongs to gameplay. Once paused, PausePanel owns every
     // resume action so the same P/Escape press cannot close and re-open it.
@@ -381,6 +465,9 @@ export class GameManager {
       this.input.endFrame();
       return;
     }
+    // The session clock pauses with gameplay. Future timed modes can replace
+    // this source with their configured countdown without changing the HUD.
+    this.elapsedMs += ms;
     if (this.gameplay.isControlFrozen(this)) {
       this.horizontalDirection = 0;
       this.horizontalRepeat = 0;
@@ -391,7 +478,7 @@ export class GameManager {
       return;
     }
     this.applyInitialRotationSystem();
-    if (this.input.take("release") && this.gameplay.release(this)) {
+    if (this.input.take("release") && this.releaseActive()) {
       this.render();
       this.input.endFrame();
       return;
@@ -430,16 +517,24 @@ export class GameManager {
       }
     }
     const softDropPressed = this.input.take("softDrop");
-    if (this.input.held("softDrop")) {
+    const keyboardSoftDrop = this.input.held("softDrop");
+    const touchSoftDrop =
+      this.touchSoftDropTargetY !== null &&
+      this.active.y < this.touchSoftDropTargetY;
+    if (keyboardSoftDrop || touchSoftDrop) {
       if (softDropPressed) this.softDropRepeat = 0;
       this.softDropRepeat -= ms;
       if (this.softDropRepeat <= 0) {
-        if (this.active.move(this.board, 0, 1)) this.score++;
-        this.updateLockState();
+        const softDropped = this.softDrop();
+        if (
+          this.touchSoftDropTargetY !== null &&
+          (!softDropped || this.active.y >= this.touchSoftDropTargetY)
+        ) this.touchSoftDropTargetY = null;
         this.softDropRepeat = 1000 / this.settings.sdf;
       }
     } else {
       this.softDropRepeat = 0;
+      if (!keyboardSoftDrop) this.touchSoftDropTargetY = null;
     }
     this.gravity += ms;
     const gravityInterval = this.interval();
@@ -478,6 +573,7 @@ export class GameManager {
       score: this.score,
       lines: this.lines,
       level: this.level,
+      elapsedMs: this.elapsedMs,
       hold: this.hold,
       next: this.queue.items,
     });
@@ -494,6 +590,7 @@ export class GameManager {
     if (this.destroyed) return;
     this.destroyed = true;
     this.input.destroy();
+    this.touch.destroy();
     removeEventListener("resize", this.resize);
     this.app.ticker.remove(this.tickCallback);
     this.reflectionCapture?.destroy();

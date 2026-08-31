@@ -11,22 +11,22 @@ const lineClearNames = [
   "DOUBLE",
   "TRIPLE",
   "PHYSTRIX",
-  "PENTARIX",
-  "HEXARIX",
-  "HEPTARIX",
-  "OCTARIX",
-  "NONARIX",
+  "PENTATRIX",
+  "HEXATRIX",
+  "HEPTATRIX",
+  "OCTATRIX",
+  "NONATRIX",
   "MEGATRIX", // 10
   "MEGATRIX", // 11
   "MEGATRIX", // 12
   "FATALIX", // 13
-  "LEGENDRIX", // 14
-  "LEGENDRIX", // 15
-  "LEGENDRIX", // 16
-  "LEGENDRIX", // 17
+  "LEGENDTRIX", // 14
+  "LEGENDTRIX", // 15
+  "LEGENDTRIX", // 16
+  "LEGENDTRIX", // 17
   "IMPOSTRIX", // 18
   "IMPOSTRIX", // 19
   "IMPOSTRIX", // 20
 ];
 export const chainName = (count) =>
-  lineClearNames[Math.min(20, count)] || `${count} CHAIN`;
+  lineClearNames[Math.min(20, count)] || `IMPOSTRIX`;

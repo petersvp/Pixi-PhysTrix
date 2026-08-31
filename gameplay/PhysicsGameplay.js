@@ -17,6 +17,7 @@ import {
   guidelineSpinScore,
 } from "../game/Scoring.js";
 import {
+  CELL,
   COLS,
   PHYSICS_RELEASE_SPAWN_MAX_WAIT_MS,
   PHYSICS_RELEASE_SPAWN_MIN_WAIT_MS,
@@ -27,6 +28,10 @@ import {
   CLEAR_PARTICLE_FORCE,
   PLACEMENT_OUTLINE_PARTICLE_COUNT,
 } from "../config/effectsConstants.js";
+import {
+  TRASH_UP_CALLOUT_COLOR,
+  TRASH_UP_TRANSITION_MS,
+} from "../config/trashConstants.js";
 
 export class PhysicsGameplay extends GameplayContract {
   constructor({ mount, session = null, app = null, sceneRoot = null }) {
@@ -69,6 +74,11 @@ export class PhysicsGameplay extends GameplayContract {
     this.awaitingPostLockScan = false;
     this.releaseWaitElapsed = 0;
     this.releasePending = false;
+    this.trashUpRemaining = 0;
+  }
+
+  spawnTrash(_game, trash) {
+    if (trash.enabled) this.physics.spawnTrash(trash.cells());
   }
 
   onSpawn(_game, piece) {
@@ -92,10 +102,11 @@ export class PhysicsGameplay extends GameplayContract {
     // newly locked polyomino itself qualifies as a spin.
     this.pendingSpin = game.detectSpin(piece);
     this.pendingSpinOrder = piece.order;
+    game.statistics.recordDrop();
     this.awaitingPostLockScan = true;
     const cells = piece.cells().filter((cell) => cell.y >= 0);
     this.physics.destroyControlled();
-    this.physics.lock(piece);
+    const lockedBody = this.physics.lock(piece);
     if (emitPlacementParticles)
       game.playfield.effects.outlineBurst(
         cells,
@@ -110,6 +121,7 @@ export class PhysicsGameplay extends GameplayContract {
       this.awaitingPostLockScan = false;
     }
     if (spawn) game.spawn();
+    return lockedBody;
   }
 
   release(game) {
@@ -131,10 +143,24 @@ export class PhysicsGameplay extends GameplayContract {
   }
 
   isControlFrozen() {
-    return Boolean(this.releasePending || this.physics?.hasPendingVanish());
+    return Boolean(
+      this.releasePending ||
+        this.trashUpRemaining > 0 ||
+        this.physics?.hasPendingVanish(),
+    );
   }
 
   step(game, ms) {
+    // Freeze the full simulation while the Trash Up celebration is readable.
+    // The next random static field appears only after this short transition.
+    if (this.trashUpRemaining > 0) {
+      this.trashUpRemaining -= ms;
+      if (this.trashUpRemaining <= 0) {
+        this.trashUpRemaining = 0;
+        this.physics.spawnTrash(game.trash.cells());
+      }
+      return;
+    }
     if (this.releasePending) {
       this.releaseWaitElapsed += ms;
       const minimumElapsed =
@@ -198,7 +224,18 @@ export class PhysicsGameplay extends GameplayContract {
           this.pendingSpinOrder,
         )
       : guidelineScore(Math.min(4, lines), game.level);
-    const allClear = this.physics.bodies.length === 0;
+    const trashUp = game.trash.enabled && !this.physics.hasTrash();
+    if (trashUp) {
+      // Trash progression clears every locked body, but deliberately leaves
+      // the current controlled piece alone. The next random trash level then
+      // becomes the only settled field and is never a Perfect Clear.
+      this.physics.clearLockedBodies();
+      game.trash.advance();
+      this.trashUpRemaining = TRASH_UP_TRANSITION_MS;
+    }
+    const allClear = !trashUp && this.physics.bodies.length === 0;
+    game.statistics.recordClear(lines, allClear);
+    game.statistics.recordSpin(spin, lines, this.pendingSpinOrder);
     const pointsAwarded =
       Math.round(baseScore * straightnessMultiplier) +
       guidelineComboScore(this.combo, game.level) +
@@ -207,15 +244,26 @@ export class PhysicsGameplay extends GameplayContract {
     game.level = game.startLevel + ((game.lines / 10) | 0) + 1;
     const averageRow =
       vanished.reduce((sum, tile) => sum + tile.y, 0) / vanished.length;
-    game.playfield.hud.showChainCallout(
-      lines,
-      averageRow,
-      this.combo,
-      spin,
-      pointsAwarded,
-      perfect,
-      allClear,
-    );
+    if (trashUp)
+      game.playfield.hud.showScoringCallout("TRASH\nUP!", {
+        combo: this.combo,
+        points: pointsAwarded,
+        color: TRASH_UP_CALLOUT_COLOR,
+        perfectClear: true,
+        y:
+          game.playfield.layout.y +
+          averageRow * CELL * game.playfield.layout.scale,
+      });
+    else
+      game.playfield.hud.showChainCallout(
+        lines,
+        averageRow,
+        this.combo,
+        spin,
+        pointsAwarded,
+        perfect,
+        allClear,
+      );
     // The spin belongs to the piece that was locked before the currently
     // controlled polyomino. A successful vanish consumes that one-turn flag.
     this.pendingSpin = "";

@@ -22,6 +22,7 @@ import {
   destroyShaderSettings,
   loadSkin,
 } from "../render/ShaderSettings.js";
+import { TRASH_SKIN_FILE } from "../config/trashConstants.js";
 import {
   applyPlayfieldLayout,
   createPlayfieldLayout,
@@ -91,12 +92,15 @@ export class Playfield {
     // Geometry and shader source are shared globally; every Playfield retains
     // independently mutable uniforms, curves, and skin resources.
     this.material = createShaderSettings();
+    this.trashMaterial = createShaderSettings();
+    this.loadTrashSkin();
     this.renderer = new BoardRenderer(
       this.gridLayer,
       this.minoLayer,
       this.glowLayer,
       this.frameLayer,
       this.material,
+      this.trashMaterial,
     );
     this.effects = new EffectsRenderer(this.effectsLayer);
     applyPlayfieldLayout(this.localLayout, [
@@ -129,8 +133,13 @@ export class Playfield {
     this.physicsRenderer = new PhysicsRenderer(
       this.physicsLayer,
       this.material,
+      this.trashMaterial,
     );
     return this.physics;
+  }
+
+  setHoldAction(callback) {
+    this.hud.setHoldAction(callback);
   }
 
   async loadSkin(fileName) {
@@ -145,6 +154,15 @@ export class Playfield {
       return applied;
     } catch {
       return 0;
+    }
+  }
+
+  async loadTrashSkin() {
+    try {
+      const response = await fetch(`minoskins/${TRASH_SKIN_FILE}`);
+      if (response.ok) loadSkin(await response.json(), this.trashMaterial);
+    } catch {
+      // Default material remains valid if an optional Trash skin is missing.
     }
   }
 
@@ -185,6 +203,7 @@ export class Playfield {
     this.effects.destroy();
     this.hud.destroy();
     destroyShaderSettings(this.material);
+    destroyShaderSettings(this.trashMaterial);
     this.root.removeFromParent();
     this.announcements.removeFromParent();
     this.root.destroy({ children: true });

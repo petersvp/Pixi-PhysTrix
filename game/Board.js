@@ -146,7 +146,9 @@ export class Board {
     });
     this.reset();
     this.lastClearedTiles = clearedTiles;
-    if (stickyGravity) {
+    // Even when ordinary row compaction is configured, a Trash board needs
+    // graph gravity so its static cells can remain in place as true blockers.
+    if (stickyGravity || survivors.some(({ tile }) => tile.trash)) {
       this.applyStickyGravity(survivors, animateFall);
       return rows.length;
     }
@@ -165,8 +167,13 @@ export class Board {
   // that contains both already-settled and still-unresolved groups. Keeping
   // unresolved cells solid prevents a group from falling through them.
   applyStickyGravity(survivors, animateFall = false) {
+    // Trash is part of the board occupancy, but never part of Classic's
+    // gravity graph. It therefore supports falling groups without joining or
+    // moving with them, even when authored links would otherwise touch.
+    const stationary = survivors.filter(({ tile }) => tile.trash);
+    const fallable = survivors.filter(({ tile }) => !tile.trash);
     const cells = new Map(
-      survivors.map((entry) => [`${entry.x},${entry.y}`, entry]),
+      fallable.map((entry) => [`${entry.x},${entry.y}`, entry]),
     );
     const visited = new Set();
     const groups = [];
@@ -277,7 +284,12 @@ export class Board {
       movedInSweep = false;
       const islands = floatingIslands();
       const occupied = new Set(
-        fallingGroups.flatMap((group) => group.map(({ x, y }) => `${x},${y}`)),
+        [
+          ...stationary.map(({ x, y }) => `${x},${y}`),
+          ...fallingGroups.flatMap((group) =>
+            group.map(({ x, y }) => `${x},${y}`),
+          ),
+        ],
       );
       islands.sort(bottomFirst).forEach((island) => {
         island.forEach(({ x, y }) => occupied.delete(`${x},${y}`));
@@ -299,6 +311,11 @@ export class Board {
       });
     }
 
+    stationary.forEach(({ tile, x, y }) => {
+      delete tile.marked;
+      delete tile.renderY;
+      this.set(x, y, tile);
+    });
     fallingGroups.forEach((group) =>
       group.forEach(({ tile, x, y, sourceY }) => {
         if (animateFall && y !== sourceY) tile.renderY = sourceY;

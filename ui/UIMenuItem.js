@@ -31,14 +31,52 @@ export class UIMenuItem {
   attach(menu, index) {
     this.menu = menu;
     this.index = index;
+    const activatePointer = (event) => {
+      menu.stack?.usePointer(menu, index);
+      const pointerType = event.pointerType || event.nativeEvent?.pointerType;
+      this.trigger({
+        source: pointerType === "touch" ? "touch" : "pointer",
+        originalEvent: event,
+      });
+    };
     this.view.on("pointerover", () => {
       menu.stack?.usePointer(menu, index);
     });
+    this.view.on("pointerdown", (event) => {
+      this.pressedPointerId = event.pointerId;
+    });
+    this.view.on("pointerup", (event) => {
+      // Pointerup is delivered reliably by mobile browsers, unlike pointertap
+      // in some touch WebViews. It also keeps mouse activation on release.
+      if (this.pressedPointerId !== event.pointerId) return;
+      this.pressedPointerId = null;
+      this.handledPointerTap = event.pointerId;
+      activatePointer(event);
+    });
+    this.view.on("pointerupoutside", (event) => {
+      if (this.pressedPointerId === event.pointerId) this.pressedPointerId = null;
+    });
     this.view.on("pointertap", (event) => {
-      menu.stack?.usePointer(menu, index);
-      this.trigger({ source: "pointer", originalEvent: event });
+      if (this.handledPointerTap === event.pointerId) {
+        this.handledPointerTap = null;
+        return;
+      }
+      activatePointer(event);
     });
     this.refresh();
+    // Start-menu item renderers rebuild their visual children on focus. A
+    // stable hit area on the container prevents that rebuild from invalidating
+    // an in-progress touch target between pointerover and pointerup.
+    if (!this.view.hitArea) {
+      const bounds = this.view.getLocalBounds();
+      if (bounds.width > 0 && bounds.height > 0)
+        this.view.hitArea = new PIXI.Rectangle(
+          bounds.x,
+          bounds.y,
+          bounds.width,
+          bounds.height,
+        );
+    }
   }
 
   refresh() {

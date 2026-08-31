@@ -16,7 +16,8 @@ export const KEYBINDS = {
   hardDrop: [" "],
   release: ["c", "v"],
   hold: ["c", "Shift"],
-  pause: ["p", "Escape"],
+  // Pause is deliberately fixed: Escape on keyboard and Start on gamepad.
+  pause: ["Escape"],
 };
 // W3C standard gamepad mapping. Keep browser button indices in one place.
 export const GAMEPAD_BUTTON = Object.freeze({
@@ -85,10 +86,12 @@ export const controlSnapshot = () => ({
 
 export function applyControlSnapshot(snapshot = {}) {
   Object.entries(snapshot.keys || {}).forEach(([action, keys]) => {
+    if (action === "pause") return;
     if (KEYBINDS[action] && Array.isArray(keys) && keys.length)
       KEYBINDS[action] = keys.map(String);
   });
   Object.entries(snapshot.gamepad || {}).forEach(([action, buttons]) => {
+    if (action === "pause") return;
     if (
       GAMEPAD_BINDS[action] &&
       (Number.isInteger(buttons) || Array.isArray(buttons))

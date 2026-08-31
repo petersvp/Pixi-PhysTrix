@@ -1,7 +1,7 @@
 /**
  * Provides the persistent Pixi settings overlay.
  * It is attached to the application stage instead of a disposable scene.
- * Timing values and control bindings are edited live and saved to a cookie.
+ * Handling values and control bindings are edited live and saved to a cookie.
  * Settings are entered from the separate pause overlay and retain pause state.
  */
 
@@ -20,7 +20,7 @@ import { UIMenu } from "./UIMenu.js";
 import { UIMenuItem } from "./UIMenuItem.js";
 import { UIMenuStack } from "./UIMenuStack.js";
 
-const TIMINGS = [
+const HANDLING_SLIDERS = [
   ["DAS", "das", 0, 500],
   ["ARR", "arr", 0, 100],
   ["DCD", "dcd", 0, 500],
@@ -36,7 +36,6 @@ const ACTIONS = [
   "hardDrop",
   "hold",
   "release",
-  "pause",
 ];
 const labelFor = (action) =>
   ({
@@ -46,7 +45,7 @@ const labelFor = (action) =>
     softDrop: "SOFT DROP",
     hardDrop: "HARD DROP",
   })[action] || action.toUpperCase();
-const TIMING_KEYS = new Set(TIMINGS.map(([, key]) => key));
+const HANDLING_KEYS = new Set(HANDLING_SLIDERS.map(([, key]) => key));
 
 export class SettingsPanel {
   constructor({ app, settings, onBack }) {
@@ -137,10 +136,11 @@ export class SettingsPanel {
     this.frame(230, 30, 440, 820);
     this.button("X", 246, 48, 34, () => this.cancel(), { navigable: false });
     this.text("SETTINGS", 294, 50, 28, COLORS.FIELD_TEXT);
-    this.text("TIMING", 250, 145, 16, COLORS.FIELD_TEXT);
-    TIMINGS.forEach(([name, key, min, max], index) =>
-      this.slider(name, key, min, max, 180 + index * 48),
+    this.text("HANDLING", 250, 108, 16, COLORS.FIELD_TEXT);
+    HANDLING_SLIDERS.forEach(([name, key, min, max], index) =>
+      this.slider(name, key, min, max, 143 + index * 48),
     );
+    this.touchToggle(250, 338);
     this.text("KEYBOARD / GAMEPAD BINDS", 250, 387, 16, COLORS.FIELD_TEXT);
     ACTIONS.forEach((action, index) => this.bindRow(action, 418 + index * 34));
     this.status = this.text(
@@ -154,6 +154,48 @@ export class SettingsPanel {
     this.button("CANCEL", 530, 805, 120, () => this.cancel());
     // Navigation controls render last, above the opaque settings card.
     this.root.addChild(this.menuStack);
+  }
+  touchToggle(x, y) {
+    const width = 420;
+    const view = new PIXI.Container();
+    view.position.set(x, y - 4);
+    const enabled = this.settings.touchAlwaysCw;
+    const switchWidth = 46;
+    const switchHeight = 22;
+    const switchColor = enabled ? 0x13bd00 : 0xa60013;
+    const capsule = new PIXI.Graphics()
+      .roundRect(0, 0, switchWidth, switchHeight, switchHeight / 2)
+      .fill(switchColor);
+    const knob = new PIXI.Graphics()
+      .circle(enabled ? switchWidth - 11 : 11, switchHeight / 2, 8)
+      .fill(COLORS.HUD_VALUE);
+    const label = new PIXI.Text({
+      text: "TAP ALWAYS CW",
+      style: {
+        fontFamily: "Quantico",
+        fontSize: 14,
+        fontWeight: "bold",
+        fill: COLORS.HUD_VALUE,
+      },
+    });
+    label.position.set(switchWidth + 12, 2);
+    view.addChild(capsule, knob, label);
+    view.eventMode = "static";
+    view.cursor = "pointer";
+    const outline = new PIXI.Graphics()
+      .roundRect(x - 8, y - 11, width, 31, 6)
+      .stroke({ width: 3, color: 0xff9d22, alpha: 0.66 });
+    outline.visible = false;
+    this.root.addChild(outline, view);
+    this.menu.addItem(new UIMenuItem({
+      id: "touchAlwaysCw",
+      view,
+      onTrigger: () => {
+        this.settings.touchAlwaysCw = !this.settings.touchAlwaysCw;
+        this.redrawKeepingFocus();
+      },
+      render: ({ selected }) => { outline.visible = selected; },
+    }));
   }
   frame(x, y, width, height) {
     const radius = 14;
@@ -260,7 +302,7 @@ export class SettingsPanel {
   }
   adjustFocusedTiming(direction, source) {
     const item = this.menuStack.activeMenu?.focusedItem;
-    if (!item || !TIMING_KEYS.has(item.id)) return false;
+    if (!item || !HANDLING_KEYS.has(item.id)) return false;
     item.navigate(direction, { source });
     return true;
   }

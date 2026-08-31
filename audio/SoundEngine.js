@@ -11,6 +11,9 @@ export class SoundEngine {
     this.context = null;
   }
   beep(f = 440, d = 0.06, type = "square", gain = 0.08, slide = 0) {
+    // Audio is temporarily disabled for this build. Keep every call site and
+    // synth routine intact so enabling it later is a one-line change here.
+    return;
     try {
       this.context ??= new (window.AudioContext || window.webkitAudioContext)();
       const t = this.context.currentTime,

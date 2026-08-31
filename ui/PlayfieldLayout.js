@@ -18,9 +18,17 @@ import {
   CALLOUT_POP_SCALE,
   CALLOUT_POINTS_FONT_SIZE,
   CALLOUT_POINTS_Y_OFFSET,
-  GAME_OVER_RESTART_SHADOW_ALPHA,
-  GAME_OVER_RESTART_SHADOW_BLUR,
-  GAME_OVER_RESTART_SHADOW_DISTANCE,
+  GAME_OVER_DETAIL_FONT_SIZE,
+  GAME_OVER_PANEL_MIN_HEIGHT,
+  GAME_OVER_PANEL_PADDING,
+  GAME_OVER_PANEL_ROW_HEIGHT,
+  GAME_OVER_PANEL_WIDTH,
+  GAME_OVER_SCORE_FONT_SIZE,
+  GAME_OVER_SCORE_SUFFIX_FONT_SIZE,
+  GAME_OVER_ENTER_DURATION_MS,
+  GAME_OVER_ENTER_START_SCALE,
+  COUNTDOWN_ENTER_DURATION_MS,
+  COUNTDOWN_ENTER_START_SCALE,
   GAME_OVER_SHADOW_PADDING,
   GAME_OVER_TITLE_SHADOW_ALPHA,
   GAME_OVER_TITLE_SHADOW_BLUR,
@@ -501,7 +509,7 @@ export class SinglePlayerHud {
     this.statsPanel = new PIXI.Container();
     this.statsPanel.label = "statisticsPanel";
     this.statsPanel.position.set(this.layout.stats.x, this.layout.stats.y);
-    this.statsRows = ["LEVEL", "LINES", "SCORE"].map((label, index) => {
+    this.statsRows = ["SCORE", "LINES", "LEVEL", "TIME"].map((label, index) => {
       const title = new PIXI.Text({
         text: label,
         style: {
@@ -567,6 +575,19 @@ export class SinglePlayerHud {
     this.nextRenderer = new PreviewPanel(this.layout.next.width, this.material);
   }
 
+  setHoldAction(callback) {
+    this.holdAction = callback;
+    this.holdPanel.eventMode = "static";
+    this.holdPanel.cursor = "pointer";
+    this.holdPanel.removeAllListeners("pointertap");
+    this.holdPanel.on("pointertap", (event) => {
+      this.holdAction?.({
+        source: event.pointerType === "touch" ? "touch" : "pointer",
+        originalEvent: event,
+      });
+    });
+  }
+
   // State and scoring text are HUD presentation, not GameManager state. The
   // manager only asks this object to announce a change in the game session.
   createOverlays() {
@@ -597,8 +618,8 @@ export class SinglePlayerHud {
     );
     this.overlay.addChild(this.message);
 
-    // Keep the top-out treatment separate from the start prompt: the title
-    // deliberately uses the same blue/light split as the PhysTrix wordmark.
+    // Keep the top-out treatment separate from the start prompt. The report
+    // itself is rebuilt from the completed game's immutable statistics.
     this.gameOverMessage = new PIXI.Container();
     this.gameOverMessage.label = "gameOverMessage";
     this.gameOverMessage.position.set(
@@ -606,62 +627,6 @@ export class SinglePlayerHud {
       this.overlayLayout.centerY,
     );
     this.gameOverMessage.visible = false;
-    const gameWord = new PIXI.Text({
-      text: "GAME",
-      style: {
-        fontFamily: "Quantico",
-        fontSize: 42,
-        fontWeight: "bold",
-        fill: COLORS.MENU_LOGO,
-        stroke: { color: COLORS.CALLOUT_STROKE, width: 5 },
-        dropShadow: true,
-        dropShadowColor: COLORS.BLACK,
-        dropShadowDistance: GAME_OVER_TITLE_SHADOW_DISTANCE,
-        dropShadowBlur: GAME_OVER_TITLE_SHADOW_BLUR,
-        dropShadowAlpha: GAME_OVER_TITLE_SHADOW_ALPHA,
-        padding: GAME_OVER_SHADOW_PADDING,
-      },
-    });
-    const overWord = new PIXI.Text({
-      text: "OVER",
-      style: {
-        fontFamily: "Quantico",
-        fontSize: 42,
-        fontWeight: "bold",
-        fill: COLORS.MENU_LOGO_TEXT,
-        stroke: { color: COLORS.CALLOUT_STROKE, width: 5 },
-        dropShadow: true,
-        dropShadowColor: COLORS.BLACK,
-        dropShadowDistance: GAME_OVER_TITLE_SHADOW_DISTANCE,
-        dropShadowBlur: GAME_OVER_TITLE_SHADOW_BLUR,
-        dropShadowAlpha: GAME_OVER_TITLE_SHADOW_ALPHA,
-        padding: GAME_OVER_SHADOW_PADDING,
-      },
-    });
-    const restart = new PIXI.Text({
-      text: "Press Enter to restart",
-      style: {
-        fontFamily: "Quantico",
-        fontSize: 24,
-        fontWeight: "bold",
-        fill: COLORS.FIELD_TEXT,
-        stroke: { color: COLORS.CALLOUT_STROKE, width: 3 },
-        dropShadow: true,
-        dropShadowColor: COLORS.BLACK,
-        dropShadowDistance: GAME_OVER_RESTART_SHADOW_DISTANCE,
-        dropShadowBlur: GAME_OVER_RESTART_SHADOW_BLUR,
-        dropShadowAlpha: GAME_OVER_RESTART_SHADOW_ALPHA,
-        padding: GAME_OVER_SHADOW_PADDING,
-      },
-    });
-    const titleWidth = gameWord.width + overWord.width + 12;
-    gameWord.anchor.set(0, 0.5);
-    overWord.anchor.set(0, 0.5);
-    restart.anchor.set(0.5, 0.5);
-    gameWord.position.set(-titleWidth / 2, -28);
-    overWord.position.set(-titleWidth / 2 + gameWord.width + 12, -28);
-    restart.position.set(0, 28);
-    this.gameOverMessage.addChild(gameWord, overWord, restart);
     this.overlay.addChild(this.gameOverMessage);
 
     this.callout = new PIXI.Container();
@@ -748,11 +713,182 @@ export class SinglePlayerHud {
     // never used during scene entry, so it can safely use this larger style.
     this.message.style.fontSize = 156;
     this.message.visible = true;
-    this.message.scale.set(text === "GO!" ? 0.7 : 1);
+    // GO! stays steady. Only the numeric beats receive the scale-in motion.
+    this.countdownEnterElapsed = text === "GO!" ? null : 0;
+    this.message.alpha = 1;
+    this.message.scale.set(
+      text === "GO!" ? 1 : COUNTDOWN_ENTER_START_SCALE,
+    );
   }
 
-  showGameOver() {
+  gameOverTitle(text, color) {
+    return new PIXI.Text({
+      text,
+      style: {
+        fontFamily: "Quantico",
+        fontSize: 42,
+        fontWeight: "bold",
+        fill: color,
+        stroke: { color: COLORS.CALLOUT_STROKE, width: 5 },
+        dropShadow: true,
+        dropShadowColor: COLORS.BLACK,
+        dropShadowDistance: GAME_OVER_TITLE_SHADOW_DISTANCE,
+        dropShadowBlur: GAME_OVER_TITLE_SHADOW_BLUR,
+        dropShadowAlpha: GAME_OVER_TITLE_SHADOW_ALPHA,
+        padding: GAME_OVER_SHADOW_PADDING,
+      },
+    });
+  }
+
+  drawGameOverFrame(panel, width, height) {
+    const left = -width / 2;
+    const top = -height / 2;
+    const radius = 16;
+    const points = [
+      new PIXI.Point(left + radius, top),
+      new PIXI.Point(left + width - radius, top),
+    ];
+    AdvancedLineRenderer.appendQuadratic(
+      points,
+      new PIXI.Point(left + width, top),
+      new PIXI.Point(left + width, top + radius),
+    );
+    points.push(new PIXI.Point(left + width, top + height - radius));
+    AdvancedLineRenderer.appendQuadratic(
+      points,
+      new PIXI.Point(left + width, top + height),
+      new PIXI.Point(left + width - radius, top + height),
+    );
+    points.push(new PIXI.Point(left + radius, top + height));
+    AdvancedLineRenderer.appendQuadratic(
+      points,
+      new PIXI.Point(left, top + height),
+      new PIXI.Point(left, top + height - radius),
+    );
+    points.push(new PIXI.Point(left, top + radius));
+    AdvancedLineRenderer.appendQuadratic(
+      points,
+      new PIXI.Point(left, top),
+      new PIXI.Point(left + radius, top),
+    );
+    new AdvancedLineRenderer({
+      texture: AdvancedLineRenderer.getHalfParticleTexture(14),
+      tint: COLORS.PANEL_ACCENT,
+      leftWidth: 12,
+      alpha: 0.78,
+      closed: true,
+      name: "gameOverPanelGlow",
+    }).draw(panel, points.reverse());
+  }
+
+  showGameOver(score = 0, summary = {}) {
     this.message.visible = false;
+    // A completed report replaces any transient clear or combo announcement.
+    this.resetCallout();
+    this.gameOverMessage
+      .removeChildren()
+      .forEach((child) => child.destroy({ children: true }));
+
+    const baseClears = summary.baseClears || [];
+    const rows = [
+      ["FIGURES DROPPED", summary.figuresDropped || 0],
+      ["AVG. DROP RATE", `${(summary.dropsPerSecond || 0).toFixed(2)} / SEC`],
+      ...baseClears.map(({ label, count }) => [label, count]),
+      ...(summary.extras || []).map(({ label, count, biggest }) => [
+        label,
+        biggest ? `${count} (${biggest})` : count,
+      ]),
+    ];
+    const spins = summary.spins || {};
+    if (spins.all) rows.push(["ALL SPINS", spins.all]);
+    if (summary.spawnedTypes?.has("T")) rows.push(["T-SPINS", spins.t || 0]);
+    if (spins.tTriple) rows.push(["T-SPIN TRIPLES", spins.tTriple]);
+    if (spins.penta) rows.push(["PENTASPINS", spins.penta]);
+    if (spins.mega) rows.push(["MEGASPINS", spins.mega]);
+
+    const width = GAME_OVER_PANEL_WIDTH;
+    const height = Math.max(
+      GAME_OVER_PANEL_MIN_HEIGHT,
+      154 + rows.length * GAME_OVER_PANEL_ROW_HEIGHT + GAME_OVER_PANEL_PADDING,
+    );
+    const panel = new PIXI.Container();
+    panel.label = "gameOverPanel";
+    const glass = new PIXI.Graphics()
+      .roundRect(-width / 2, -height / 2, width, height, 16)
+      .fill({ color: COLORS.PANEL_BG, alpha: 0.94 });
+    panel.addChild(glass);
+    this.drawGameOverFrame(panel, width, height);
+
+    const gameWord = this.gameOverTitle("GAME", COLORS.MENU_LOGO);
+    const overWord = this.gameOverTitle("OVER", COLORS.MENU_LOGO_TEXT);
+    const titleWidth = gameWord.width + overWord.width + 12;
+    gameWord.anchor.set(0, 0.5);
+    overWord.anchor.set(0, 0.5);
+    const top = -height / 2 + GAME_OVER_PANEL_PADDING + 28;
+    gameWord.position.set(-titleWidth / 2, top);
+    overWord.position.set(-titleWidth / 2 + gameWord.width + 12, top);
+    panel.addChild(gameWord, overWord);
+
+    const scoreLabel = new PIXI.Text({
+      text: score.toLocaleString(),
+      style: {
+        fontFamily: "Quantico",
+        fontSize: GAME_OVER_SCORE_FONT_SIZE,
+        fontWeight: "bold",
+        fill: COLORS.HUD_VALUE,
+        stroke: { color: COLORS.CALLOUT_STROKE, width: 3 },
+      },
+    });
+    const scoreSuffix = new PIXI.Text({
+      text: "PTS.",
+      style: {
+        fontFamily: "Quantico",
+        fontSize: GAME_OVER_SCORE_SUFFIX_FONT_SIZE,
+        fontWeight: "bold",
+        fill: COLORS.HUD_LABEL,
+      },
+    });
+    const scoreWidth = scoreLabel.width + scoreSuffix.width + 8;
+    scoreLabel.anchor.set(0, 0.5);
+    scoreSuffix.anchor.set(0, 0.5);
+    scoreLabel.position.set(-scoreWidth / 2, top + 52);
+    scoreSuffix.position.set(
+      -scoreWidth / 2 + scoreLabel.width + 8,
+      top + 56,
+    );
+    panel.addChild(scoreLabel, scoreSuffix);
+
+    rows.forEach(([label, value], index) => {
+      const y = top + 92 + index * GAME_OVER_PANEL_ROW_HEIGHT;
+      const key = new PIXI.Text({
+        text: label,
+        style: {
+          fontFamily: "Quantico",
+          fontSize: GAME_OVER_DETAIL_FONT_SIZE,
+          fontWeight: "bold",
+          fill: COLORS.HUD_LABEL,
+        },
+      });
+      const amount = new PIXI.Text({
+        text: String(value),
+        style: {
+          fontFamily: "Quantico",
+          fontSize: GAME_OVER_DETAIL_FONT_SIZE,
+          fontWeight: "bold",
+          fill: COLORS.HUD_VALUE,
+        },
+      });
+      key.anchor.set(0, 0.5);
+      amount.anchor.set(1, 0.5);
+      key.position.set(-width / 2 + GAME_OVER_PANEL_PADDING, y);
+      amount.position.set(width / 2 - GAME_OVER_PANEL_PADDING, y);
+      panel.addChild(key, amount);
+    });
+
+    this.gameOverMessage.addChild(panel);
+    this.gameOverEnterElapsed = 0;
+    this.gameOverMessage.alpha = 0;
+    this.gameOverMessage.scale.set(GAME_OVER_ENTER_START_SCALE);
     this.gameOverMessage.visible = true;
   }
 
@@ -845,6 +981,25 @@ export class SinglePlayerHud {
   }
 
   updateCallout(deltaMS) {
+    if (this.gameOverEnterElapsed !== undefined) {
+      this.gameOverEnterElapsed += deltaMS;
+      const amount = Math.min(1, this.gameOverEnterElapsed / GAME_OVER_ENTER_DURATION_MS);
+      const eased = 1 - Math.pow(1 - amount, 3);
+      this.gameOverMessage.alpha = eased;
+      this.gameOverMessage.scale.set(
+        GAME_OVER_ENTER_START_SCALE + (1 - GAME_OVER_ENTER_START_SCALE) * eased,
+      );
+      if (amount >= 1) this.gameOverEnterElapsed = undefined;
+    }
+    if (this.countdownEnterElapsed !== null && this.countdownEnterElapsed !== undefined) {
+      this.countdownEnterElapsed += deltaMS;
+      const amount = Math.min(1, this.countdownEnterElapsed / COUNTDOWN_ENTER_DURATION_MS);
+      const eased = 1 - Math.pow(1 - amount, 3);
+      this.message.scale.set(
+        COUNTDOWN_ENTER_START_SCALE + (1 - COUNTDOWN_ENTER_START_SCALE) * eased,
+      );
+      if (amount >= 1) this.countdownEnterElapsed = undefined;
+    }
     if (this.calloutLife <= 0) return;
     this.calloutLife -= deltaMS;
     this.calloutPopTime += deltaMS;
@@ -869,8 +1024,11 @@ export class SinglePlayerHud {
     if (this.calloutLife <= 0) this.perfectClearCallout = false;
   }
 
-  update({ score, lines, level, hold, next }) {
-    [level, lines, score].forEach((value, index) => {
+  update({ score, lines, level, elapsedMs = 0, hold, next }) {
+    const totalSeconds = Math.floor(elapsedMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    [score, lines, level, `${minutes}:${seconds}`].forEach((value, index) => {
       this.statsRows[index].value.text = String(value);
     });
     this.holdRenderer.draw(

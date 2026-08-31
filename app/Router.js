@@ -6,6 +6,7 @@
  */
 
 import { MINO_SKINS } from "../config/skinCatalog.js";
+import { MAX_TRASH_LEVEL } from "../config/trashConstants.js";
 import { GAMEPLAY_MODES, PLAYER_MODES } from "../shared/constants.js";
 
 const skinFileByLabel = Object.fromEntries(
@@ -53,7 +54,7 @@ export function readLaunchParameters(hash = window.location.hash) {
   );
   const trash = Math.max(
     0,
-    Math.min(15, Number.parseInt(params.get("trash"), 10) || 0),
+    Math.min(MAX_TRASH_LEVEL, Number.parseInt(params.get("trash"), 10) || 0),
   );
   return {
     playerMode: PLAYER_MODES.includes(playerMode) ? playerMode : "1p",

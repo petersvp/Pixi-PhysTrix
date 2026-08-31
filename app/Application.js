@@ -22,6 +22,7 @@ import { playerModeDescriptors } from "../player/PlayerModeRegistry.js";
 import { DebugPanel } from "../ui/DebugPanel.js";
 import { SettingsPanel } from "../ui/SettingsPanel.js";
 import { PausePanel } from "../ui/PausePanel.js";
+import { TopBar } from "../ui/TopBar.js";
 import { loadPersistentSettings } from "../game/Settings.js";
 import { loadMinoShaderSources } from "../render/ShaderSources.js";
 import { loadSkin, shaderSettings } from "../render/ShaderSettings.js";
@@ -72,8 +73,26 @@ export class Application {
         if (this.sceneKind === "game") this.pausePanel.open();
       },
     });
+    this.topBar = new TopBar({
+      app: this.shell.app,
+      isEnabled: () => this.mode?.game?.state === "playing",
+      onPause: () => this.mode?.game?.setPaused(true),
+      onSettings: () => {
+        const game = this.mode?.game;
+        if (!game || game.state !== "playing") return;
+        game.setPaused(true);
+        this.pausePanel.close();
+        this.settingsPanel.open();
+      },
+    });
     this.debugPanel = new DebugPanel();
     this.debugPanel.setVisible(false);
+    // Deliberate browser-console entry point for skin authoring. It reuses
+    // the persistent inspector and never routes, reloads, or rebuilds Pixi.
+    window.openSkinEditor = () => {
+      this.debugPanel.setVisible(true);
+      return this.debugPanel;
+    };
     this.onHashChange = () => this.route();
     addEventListener("hashchange", this.onHashChange);
     this.route();
@@ -102,6 +121,7 @@ export class Application {
     if (this.sceneKind === "menu") return;
     this.clearScene();
     this.sceneKind = "menu";
+    this.topBar?.setVisible(false);
     this.debugPanel?.setMaterial(shaderSettings);
     this.scene = this.shell.createScene("mainMenuScene");
     this.startMenu = new StartMenu({
@@ -123,6 +143,7 @@ export class Application {
     if (this.sceneKind === "game") return;
     this.clearScene();
     this.sceneKind = "game";
+    this.topBar?.setVisible(true);
     this.scene = this.shell.createScene("gameplayScene");
     const player = playerModeDescriptors[this.session.playerMode];
     this.mode = this.registry.create(this.session.gameplayMode, {

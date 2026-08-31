@@ -44,6 +44,7 @@ export class BoardRenderer {
     glowLayer,
     frameLayer,
     material,
+    trashMaterial = material,
   ) {
     // The playfield background, the active mino layer, and the border overlay are
     // all separate Pixi Graphics/Container objects so they can be redrawn and
@@ -80,6 +81,7 @@ export class BoardRenderer {
     this.drawStaticFrame();
     // Reuse a shared quad renderer to build connected, stylized mino tiles.
     this.quads = new MinoQuadRenderer(material);
+    this.trashQuads = new MinoQuadRenderer(trashMaterial);
   }
 
   // The particle is authored in white. Pixi applies the rail color through
@@ -227,6 +229,7 @@ export class BoardRenderer {
         x,
         y,
         tile.color,
+        tile.trash,
         tile.pieceId,
         tile.marked,
         tile.broken,
@@ -262,11 +265,11 @@ export class BoardRenderer {
     }
     // Paint each connected group of tiles as a single silhouette so adjacent minos
     // appear to share edges instead of being drawn as isolated boxes.
-    const drawConnected = (target, cells, color, alpha) => {
+    const drawConnected = (target, cells, color, alpha, trash = false) => {
       const set = new Set(cells.map((cell) => `${cell.x},${cell.y}`));
       const layer = new PIXI.Container();
       layer.label = "connectedMinoGroup";
-      this.quads.draw(
+      (trash ? this.trashQuads : this.quads).draw(
         layer,
         cells,
         color,
@@ -331,12 +334,19 @@ export class BoardRenderer {
           visualLinks: tile.visualLinks,
           broken: tile.broken,
           marked: tile.marked,
+          trash: tile.trash,
         });
         groups.set(tile.pieceId, group);
       });
       // Draw settled board tiles first so the active piece can be layered above them.
       groups.forEach((group) =>
-        drawConnected(this.settledLayer, group.cells, group.color, 1),
+        drawConnected(
+          this.settledLayer,
+          group.cells,
+          group.color,
+          1,
+          group.cells[0]?.trash,
+        ),
       );
       // Marked classic rows use the same light, outline-only clear treatment as
       // physics minos. The material remains visible under the temporary glow.

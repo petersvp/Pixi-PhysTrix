@@ -17,6 +17,9 @@ export const defaultSettings = () => ({
   lockResetLimit: 15,
   sdf: 40,
   ghost: true,
+  // When enabled, both halves of a playfield tap clockwise. This is useful
+  // for one-handed touch play and remains off by default.
+  touchAlwaysCw: false,
   master: 0.65,
   effects: 0.8,
 });

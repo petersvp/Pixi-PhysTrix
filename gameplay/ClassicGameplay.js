@@ -27,6 +27,10 @@ import {
   PLACEMENT_OUTLINE_PARTICLE_COUNT,
 } from "../config/effectsConstants.js";
 import { COLORS } from "../config/colors.js";
+import {
+  TRASH_UP_CALLOUT_COLOR,
+  TRASH_UP_TRANSITION_MS,
+} from "../config/trashConstants.js";
 
 export class ClassicGameplay extends GameplayContract {
   constructor({ mount, session = null, app = null, sceneRoot = null }) {
@@ -50,6 +54,9 @@ export class ClassicGameplay extends GameplayContract {
     this.pendingSpin = "";
     this.pendingSpinOrder = 4;
   }
+  spawnTrash(game, trash) {
+    if (trash.enabled) trash.populateBoard(game.board);
+  }
   isControlFrozen() {
     return Boolean(this.resolve);
   }
@@ -58,6 +65,7 @@ export class ClassicGameplay extends GameplayContract {
     const piece = game.active;
     const spin = game.detectSpin(piece);
     const lockedCells = piece.cells().filter((cell) => cell.y >= 0);
+    game.statistics.recordDrop();
     game.playfield.effects.outlineBurst(
       lockedCells,
       piece.color,
@@ -107,12 +115,14 @@ export class ClassicGameplay extends GameplayContract {
     });
     this.pendingSpin = "";
   }
-  awardClear(game, lines, clearedRows = []) {
+  awardClear(game, lines, clearedRows = [], trashUp = false) {
     game.playfield.matchPunch();
     const spin = this.pendingSpin;
     game.lines += lines;
     game.classicCombo += 1;
-    const allClear = game.board.isEmpty();
+    const allClear = !trashUp && game.board.isEmpty();
+    game.statistics.recordClear(lines, allClear);
+    game.statistics.recordSpin(spin, lines, this.pendingSpinOrder);
     const pointsAwarded =
       (spin
         ? guidelineSpinScore(
@@ -128,20 +138,26 @@ export class ClassicGameplay extends GameplayContract {
     game.level = game.startLevel + ((game.lines / 10) | 0) + 1;
     game.sound.clear(lines);
     const clearName = `${chainName(lines)}!`;
-    const primary = allClear
+    const primary = trashUp
+      ? "TRASH\nUP!"
+      : allClear
       ? "PERFECT\nCLEAR!!!"
       : [spin, clearName].filter(Boolean).join(" ");
     game.playfield.hud.showScoringCallout(primary, {
       combo: game.classicCombo,
       points: pointsAwarded,
-      color: spin
+      color: trashUp
+        ? TRASH_UP_CALLOUT_COLOR
+        : spin
         ? COLORS.SPIN_TEXT
         : lines >= 4
           ? COLORS.MAJOR_CLEAR_TEXT
           : COLORS.CLEAR_TEXT,
       majorClear: lines >= 4,
       lineType: allClear ? clearName : "",
-      perfectClear: allClear,
+      // Trash Up reuses the celebratory All Clear animation without ever
+      // presenting it as a Perfect Clear or awarding its bonus.
+      perfectClear: allClear || trashUp,
       // The callout belongs to the physical line scan, not the board bottom.
       // Use the center when multiple rows clear together.
       y:
@@ -177,8 +193,25 @@ export class ClassicGameplay extends GameplayContract {
           CLEAR_PARTICLE_FORCE,
         ),
       );
-      this.awardClear(game, lines, this.resolve.rows);
-      this.resolve.phase = "fall";
+      const trashUp =
+        game.trash.enabled && !game.trash.boardHasTrash(game.board);
+      if (trashUp) {
+        game.board.reset();
+        game.trash.advance();
+      }
+      this.awardClear(game, lines, this.resolve.rows, trashUp);
+      if (trashUp) {
+        this.resolve.phase = "trashUp";
+        this.resolve.remaining = TRASH_UP_TRANSITION_MS;
+      } else this.resolve.phase = "fall";
+      return;
+    }
+    if (this.resolve.phase === "trashUp") {
+      this.resolve.remaining -= ms;
+      if (this.resolve.remaining > 0) return;
+      game.trash.populateBoard(game.board);
+      this.resolve = null;
+      game.spawn();
       return;
     }
     if (game.board.updateFallAnimation(ms)) return;

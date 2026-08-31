@@ -7,13 +7,19 @@
  * Skin previews are rendered once into textures and reused by their menu items.
  */
 
-import { COLORS } from "../config/colors.js";
+import { COLORS, POLYOMINO_COLORS } from "../config/colors.js";
 import { GAMEPAD_BUTTON } from "../config/controls.js";
 import { MINO_SKINS } from "../config/skinCatalog.js";
+import { MAX_TRASH_LEVEL } from "../config/trashConstants.js";
 import {
   GAME_VIEWPORT_HEIGHT,
   START_MENU_BUTTON_GAP,
   START_MENU_BUTTON_HEIGHT,
+  START_MENU_AMBIENT_ALPHA,
+  START_MENU_AMBIENT_CELL_SIZE,
+  START_MENU_AMBIENT_MAX_SPEED,
+  START_MENU_AMBIENT_MIN_SPEED,
+  START_MENU_AMBIENT_POLYOMINO_COUNT,
   START_MENU_FOOTER_BOTTOM_PADDING,
   START_MENU_FOOTER_HEIGHT,
   START_MENU_HORIZONTAL_ACTION_ROW_GAP,
@@ -27,6 +33,10 @@ import {
   START_MENU_MOBILE_VIEWPORT_WIDTH,
   START_MENU_NARROW_WIDTH,
   START_MENU_RADIUS,
+  START_MENU_SECTION_IN_DURATION_MS,
+  START_MENU_SECTION_OUT_DURATION_MS,
+  START_MENU_SECTION_STAGGER_MS,
+  START_MENU_SECTION_START_SCALE,
   START_MENU_TITLE_FONT_SIZE,
   START_MENU_VERTICAL_ROW_GAP,
   START_MENU_VERTICAL_START_TO_FOOTER_GAP,
@@ -74,12 +84,21 @@ export class StartMenu {
     this.root = new PIXI.Container();
     this.root.label = "startMenuRoot";
     scene.addChild(this.root);
+    this.ambientLayer = new PIXI.Container();
+    this.ambientLayer.label = "startMenuAmbientPolyominoes";
+    this.content = new PIXI.Container();
+    this.content.label = "startMenuContent";
+    this.root.addChild(this.ambientLayer, this.content);
+    this.ambientPolyominoes = [];
+    this.createAmbientBackground();
     this.resize = () => this.layout();
     this.keydown = (event) => this.handleKey(event);
     this.pollGamepad = () => this.handleGamepad();
+    this.tick = () => this.update(this.app.ticker.deltaMS);
     addEventListener("resize", this.resize);
     addEventListener("keydown", this.keydown);
     app.ticker.add(this.pollGamepad);
+    app.ticker.add(this.tick);
     this.presentation = this.presentationForViewport();
     this.build();
     this.layout();
@@ -174,8 +193,7 @@ export class StartMenu {
   }
 
   build() {
-    console.log("BUILD?");
-    this.root
+    this.content
       .removeChildren()
       .forEach((child) => child.destroy({ children: true }));
     this.itemGroups = [];
@@ -185,7 +203,7 @@ export class StartMenu {
       layout: this.presentation === "vertical" ? "grid" : "horizontal",
     });
     this.stack.label = "startMenuStack";
-    this.root.addChild(this.stack);
+    this.content.addChild(this.stack);
     const grid =
       this.presentation === "vertical"
         ? [
@@ -264,6 +282,7 @@ export class StartMenu {
         PHYSICS_PRESETS.findIndex((option) => option.id === this.physicsPreset),
       ),
     );
+    this.beginSectionEntrance();
   }
   createMenu(id, geometry, gridX, gridY, direction = "vertical") {
     const menu = new UIMenu({
@@ -306,7 +325,7 @@ export class StartMenu {
       this.geometry?.logoY || this.sectionGeometry().logoY,
     );
     trix.position.set(phys.x + phys.width, phys.y);
-    this.root.addChild(phys, trix);
+    this.content.addChild(phys, trix);
 
     // OPEN-SOURCE EDITION BADGE
     const edition = new PIXI.Text({
@@ -324,7 +343,7 @@ export class StartMenu {
       this.viewportWidth() / 2,
       phys.y + Math.max(phys.height, trix.height) - 8,
     );
-    this.root.addChild(edition);
+    this.content.addChild(edition);
   }
   addHeading(menu, text, width) {
     const heading = new PIXI.Text({
@@ -563,7 +582,12 @@ export class StartMenu {
           selected || held ? 3 : 2,
           `${setting.id}SelectorOutline`,
         );
-        const textColor = held ? COLORS.APP_BACKGROUND : COLORS.HUD_VALUE;
+        const noTrash = setting.id === "trash" && setting.get() === 0;
+        const textColor = held
+          ? COLORS.APP_BACKGROUND
+          : noTrash
+            ? COLORS.HUD_BUTTON_LABEL
+            : COLORS.HUD_VALUE;
         const label = new PIXI.Text({
           text: setting.label,
           style: {
@@ -575,7 +599,10 @@ export class StartMenu {
         });
         label.position.set(14, 10);
         const value = new PIXI.Text({
-          text: String(setting.get()),
+          text:
+            setting.id === "trash" && setting.get() === 0
+              ? "No"
+              : String(setting.get()),
           style: {
             fontFamily: "Quantico",
             fontSize: 31,
@@ -609,14 +636,15 @@ export class StartMenu {
         plus.position.set(width - 24, 45);
         view.addChild(label, value, minus, plus);
       };
+      const maximum = setting.id === "trash" ? MAX_TRASH_LEVEL : 15;
       const adjust = (amount) =>
-        setting.set(Math.max(0, Math.min(15, setting.get() + amount)));
+        setting.set(Math.max(0, Math.min(maximum, setting.get() + amount)));
       const item = new UIMenuItem({
         view,
         render,
         id: setting.id,
         onTrigger: (target, event) => {
-          if (event.source === "pointer") {
+          if (event.source === "pointer" || event.source === "touch") {
             const point = event.originalEvent.getLocalPosition(view);
             if (point.x < 44) adjust(-1);
             else if (point.x > width - 44) adjust(1);
@@ -643,7 +671,9 @@ export class StartMenu {
           else return;
           target.lastTextInputAt = now;
           if (target.editBuffer)
-            setting.set(Math.max(0, Math.min(15, Number(target.editBuffer))));
+            setting.set(
+              Math.max(0, Math.min(maximum, Number(target.editBuffer))),
+            );
           group.forEach((candidate) => candidate.refresh());
         },
       });
@@ -677,11 +707,9 @@ export class StartMenu {
     const item = new UIMenuItem({
       ...visual,
       id: "start",
-      // A pointer tap is an explicit click. Keyboard/controller trigger is
-      // intentionally ignored: only Enter or controller Start launches.
-      onTrigger: (_item, event) => {
-        if (event.source === "pointer") this.start();
-      },
+      // START is deliberately navigable: reaching it and triggering it is a
+      // valid launch action for pointer, touch, keyboard, and controller.
+      onTrigger: () => this.start(),
     });
     menu.addItem(item);
     group.push(item);
@@ -771,7 +799,7 @@ export class StartMenu {
     legal.anchor.set(0.5);
     author.position.set(this.viewportWidth() / 2, y);
     legal.position.set(this.viewportWidth() / 2, y + 20);
-    this.root.addChild(author, legal);
+    this.content.addChild(author, legal);
   }
   handleKey(event) {
     const activeItem = this.stack.activeMenu?.focusedItem;
@@ -828,6 +856,12 @@ export class StartMenu {
     this.previousGamepadButtons = pad.buttons.map((button) => !!button.pressed);
   }
   start() {
+    if (this.leaving) return;
+    this.leaving = true;
+    this.exitElapsed = 0;
+  }
+
+  completeStart() {
     this.onStart({
       playerMode: "1p",
       gameplayMode: this.physicsPreset === "static" ? "classic" : "physics",
@@ -838,11 +872,122 @@ export class StartMenu {
       trash: this.trash,
     });
   }
+  beginSectionEntrance() {
+    this.sectionEntranceElapsed = 0;
+    this.leaving = false;
+    this.stack.entries.forEach(({ menu }, index) => {
+      menu.alpha = 0;
+      menu.scale.set(START_MENU_SECTION_START_SCALE);
+      menu.__startMenuDelay = index * START_MENU_SECTION_STAGGER_MS;
+    });
+  }
+  createAmbientBackground() {
+    const shapes = [
+      [[0, 0], [1, 0], [0, 1], [1, 1]],
+      [[0, 0], [1, 0], [2, 0], [1, 1]],
+      [[0, 0], [0, 1], [1, 1], [2, 1]],
+      [[0, 0], [1, 0], [1, 1], [2, 1]],
+    ];
+    const colors = Object.values(POLYOMINO_COLORS);
+    const random = (seed) => {
+      const value = Math.sin(seed * 999) * 43758.5453;
+      return value - Math.floor(value);
+    };
+    for (let index = 0; index < START_MENU_AMBIENT_POLYOMINO_COUNT; index++) {
+      const node = new PIXI.Container();
+      node.label = `ambientPolyomino${index}`;
+      const shape = shapes[index % shapes.length];
+      shape.forEach(([x, y]) => {
+        node.addChild(
+          new PIXI.Graphics()
+            .roundRect(
+              x * START_MENU_AMBIENT_CELL_SIZE,
+              y * START_MENU_AMBIENT_CELL_SIZE,
+              START_MENU_AMBIENT_CELL_SIZE - 2,
+              START_MENU_AMBIENT_CELL_SIZE - 2,
+              5,
+            )
+            .fill({
+              color: colors[index % colors.length],
+              alpha: START_MENU_AMBIENT_ALPHA,
+            }),
+        );
+      });
+      node.position.set(
+        random(index + 1) * START_MENU_VIEWPORT_WIDTH,
+        random(index + 11) * GAME_VIEWPORT_HEIGHT,
+      );
+      node.rotation = (random(index + 21) - 0.5) * 0.7;
+      this.ambientLayer.addChild(node);
+      const speed =
+        START_MENU_AMBIENT_MIN_SPEED +
+        random(index + 31) *
+          (START_MENU_AMBIENT_MAX_SPEED - START_MENU_AMBIENT_MIN_SPEED);
+      this.ambientPolyominoes.push({
+        node,
+        vx: (random(index + 41) < 0.5 ? -1 : 1) * speed,
+        vy: (random(index + 51) < 0.5 ? -1 : 1) * speed * 0.55,
+        spin: (random(index + 61) - 0.5) * 0.22,
+      });
+    }
+  }
+  update(deltaMS) {
+    const seconds = deltaMS / 1000;
+    const width = this.viewportWidth();
+    const height = this.viewportHeight();
+    this.ambientPolyominoes.forEach((ambient) => {
+      const { node } = ambient;
+      node.x += ambient.vx * seconds;
+      node.y += ambient.vy * seconds;
+      node.rotation += ambient.spin * seconds;
+      if (node.x < -90 || node.x > width + 40) {
+        node.x = Math.max(-90, Math.min(width + 40, node.x));
+        ambient.vx *= -1;
+      }
+      if (node.y < -90 || node.y > height + 40) {
+        node.y = Math.max(-90, Math.min(height + 40, node.y));
+        ambient.vy *= -1;
+      }
+    });
+    if (this.leaving) {
+      this.exitElapsed += deltaMS;
+      const amount = Math.min(1, this.exitElapsed / START_MENU_SECTION_OUT_DURATION_MS);
+      const eased = amount * amount;
+      this.stack.entries.forEach(({ menu }) => {
+        menu.alpha = 1 - eased;
+        menu.scale.set(1 - 0.12 * eased);
+      });
+      if (amount >= 1) this.completeStart();
+      return;
+    }
+    if (this.sectionEntranceElapsed === undefined) return;
+    this.sectionEntranceElapsed += deltaMS;
+    let finished = true;
+    this.stack.entries.forEach(({ menu }) => {
+      const amount = Math.max(
+        0,
+        Math.min(
+          1,
+          (this.sectionEntranceElapsed - menu.__startMenuDelay) /
+            START_MENU_SECTION_IN_DURATION_MS,
+        ),
+      );
+      const eased = 1 - Math.pow(1 - amount, 3);
+      menu.alpha = eased;
+      menu.scale.set(
+        START_MENU_SECTION_START_SCALE +
+          (1 - START_MENU_SECTION_START_SCALE) * eased,
+      );
+      if (amount < 1) finished = false;
+    });
+    if (finished) this.sectionEntranceElapsed = undefined;
+  }
   destroy() {
     this.destroyed = true;
     removeEventListener("resize", this.resize);
     removeEventListener("keydown", this.keydown);
     this.app.ticker.remove(this.pollGamepad);
+    this.app.ticker.remove(this.tick);
     this.skinPreviews.forEach((texture) => texture.destroy(true));
     this.skinPreviews.clear();
     this.root.destroy({ children: true });

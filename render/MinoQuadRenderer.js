@@ -29,13 +29,14 @@ export class MinoQuadRenderer {
     alpha = 1,
     offsetX = 0,
     offsetY = 0,
+    material = this.material,
   ) {
     container.removeChildren().forEach((child) => child.destroy());
     cells.forEach((cell) => {
       const links = linksForCell(cell);
       const quad = new PIXI.Mesh({
         geometry: MinoQuadRenderer.geometry,
-        shader: createMinoShader(color, links, this.material),
+        shader: createMinoShader(color, links, material),
       });
       // Use source-alpha compositing for translucent shader faces and bevels.
       quad.blendMode = "normal";

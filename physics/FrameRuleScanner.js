@@ -34,7 +34,8 @@ export class FrameRuleScanner {
       this.world.RayCast(
         (f) => {
           if (
-            f.GetBody().GetType() === Body.b2_dynamicBody &&
+            (f.GetBody().GetType() === Body.b2_dynamicBody ||
+              f.GetBody().GetType() === Body.b2_staticBody) &&
             f.GetUserData()
           ) {
             // The ray itself has a constant Y, so use the fixture's actual
