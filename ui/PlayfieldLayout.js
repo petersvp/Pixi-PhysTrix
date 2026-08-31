@@ -23,6 +23,9 @@ import {
   GAME_OVER_PANEL_PADDING,
   GAME_OVER_PANEL_ROW_HEIGHT,
   GAME_OVER_PANEL_WIDTH,
+  GAME_OVER_PLAY_AGAIN_GAP,
+  GAME_OVER_PLAY_AGAIN_HEIGHT,
+  GAME_OVER_PLAY_AGAIN_WIDTH,
   GAME_OVER_SCORE_FONT_SIZE,
   GAME_OVER_SCORE_SUFFIX_FONT_SIZE,
   GAME_OVER_ENTER_DURATION_MS,
@@ -588,6 +591,12 @@ export class SinglePlayerHud {
     });
   }
 
+  // The game-over panel is part of the Pixi HUD, so its replay action stays
+  // local to the active Playfield rather than depending on DOM tap handling.
+  setRestartAction(callback) {
+    this.restartAction = callback;
+  }
+
   // State and scoring text are HUD presentation, not GameManager state. The
   // manager only asks this object to announce a change in the game session.
   createOverlays() {
@@ -809,7 +818,11 @@ export class SinglePlayerHud {
     const width = GAME_OVER_PANEL_WIDTH;
     const height = Math.max(
       GAME_OVER_PANEL_MIN_HEIGHT,
-      154 + rows.length * GAME_OVER_PANEL_ROW_HEIGHT + GAME_OVER_PANEL_PADDING,
+      154 +
+        rows.length * GAME_OVER_PANEL_ROW_HEIGHT +
+        GAME_OVER_PANEL_PADDING +
+        GAME_OVER_PLAY_AGAIN_GAP +
+        GAME_OVER_PLAY_AGAIN_HEIGHT,
     );
     const panel = new PIXI.Container();
     panel.label = "gameOverPanel";
@@ -884,6 +897,47 @@ export class SinglePlayerHud {
       amount.position.set(width / 2 - GAME_OVER_PANEL_PADDING, y);
       panel.addChild(key, amount);
     });
+
+    const playAgain = new PIXI.Container();
+    playAgain.label = "gameOverPlayAgain";
+    playAgain.eventMode = "static";
+    playAgain.cursor = "pointer";
+    const buttonX = -GAME_OVER_PLAY_AGAIN_WIDTH / 2;
+    const buttonY =
+      top +
+      92 +
+      rows.length * GAME_OVER_PANEL_ROW_HEIGHT +
+      GAME_OVER_PLAY_AGAIN_GAP;
+    const buttonFace = new PIXI.Graphics()
+      .roundRect(
+        buttonX,
+        buttonY,
+        GAME_OVER_PLAY_AGAIN_WIDTH,
+        GAME_OVER_PLAY_AGAIN_HEIGHT,
+        8,
+      )
+      .fill(COLORS.PANEL_ACCENT)
+      .stroke({ width: 2, color: COLORS.MENU_LOGO_TEXT });
+    const buttonLabel = new PIXI.Text({
+      text: "PLAY AGAIN",
+      style: {
+        fontFamily: "Quantico",
+        fontSize: 18,
+        fontWeight: "bold",
+        fill: COLORS.APP_BACKGROUND,
+      },
+    });
+    buttonLabel.anchor.set(0.5);
+    buttonLabel.position.set(0, buttonY + GAME_OVER_PLAY_AGAIN_HEIGHT / 2);
+    playAgain.addChild(buttonFace, buttonLabel);
+    playAgain.on("pointertap", (event) => {
+      event.stopPropagation?.();
+      this.restartAction?.({
+        source: event.pointerType === "touch" ? "touch" : "pointer",
+        originalEvent: event,
+      });
+    });
+    panel.addChild(playAgain);
 
     this.gameOverMessage.addChild(panel);
     this.gameOverEnterElapsed = 0;

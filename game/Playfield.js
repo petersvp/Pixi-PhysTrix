@@ -142,6 +142,10 @@ export class Playfield {
     this.hud.setHoldAction(callback);
   }
 
+  setRestartAction(callback) {
+    this.hud.setRestartAction(callback);
+  }
+
   async loadSkin(fileName) {
     if (!fileName) return 0;
     try {

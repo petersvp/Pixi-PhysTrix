@@ -99,6 +99,7 @@ export class GameManager {
     });
     this.playfield.loadSkin(this.session?.skin);
     this.playfield.setHoldAction(() => this.holdPiece());
+    this.playfield.setRestartAction(() => this.start());
     this.trash = new TrashSystem(this.session?.trash);
     this.gameplay.attach(this);
     this.reflectionCapture = ENABLE_REFLECTION_CAPTURE
