@@ -1,4 +1,4 @@
-**PhysTrix** is a chaotic Tetris-like stacker built around the moment a clean stack **stops being stable**.
+**PhysTrix** is a chaotic physics-based block-dropping stacker built around the moment a clean stack **stops being stable**.
 
 It's like playing **that one game**, with all of its modern controls and mechanics, as seen in games like TETR.IO and Tetris Effect: Connected, until the moment of chaos: **everything is affected by gravity**. Wrong stack? It will collapse. But you have well balanced control. And your Tetris skills will - mostly, kinda, maybe - transfer here! 
 
@@ -8,7 +8,7 @@ PhysTrix's basic control and handling is following the modern standards *(from t
 drop, hold & take, SRS, kicks, special spins, but that's where its Tetris roots end. You have tetrominos, pentominos, polyominoes 
 of any order, and our **custom rotation and kick system** handles any polyomino it can. (And yes, we use SRS for tetrominoes!) 
 
-And then here comes the gravity. Gravity, yes, we have 2 gravity modes. Grid-based gravity as seen in some Tetris variants and DR. Mario, and actual physics based gravity - where polyominos have their friction, bouncineess, mass, and the whole stack can collapse, forcing you to play in a very different stacking style.
+And then here comes the gravity. Gravity, yes, we have 2 gravity modes. Grid-based gravity as seen in some stackers e.g. Dr. Mario, and actual physics based gravity - where polyominos have their friction, bouncineess, mass, and the whole stack can collapse, forcing you to play in a very different stacking style.
 
 It is fast, messy, experimental, funny and built for players who enjoy making a plan just before gravity ruins it.
 
@@ -84,6 +84,6 @@ The game must be served through a server. Opening `index.html` directly with `fi
 
 ## Notes
 
-PhysTrix is currently designed for desktop browsers. 
+PhysTrix works on desktop and mobile. 
 
 Tetris is a trademark of The Tetris Company. PhysTrix is an unofficial personal fan project.

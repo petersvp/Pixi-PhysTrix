@@ -326,6 +326,9 @@ export class GameManager {
     // Let tick() perform every actual descent at the configured SDF rate.
     return true;
   }
+  clearTouchSoftDropTarget() {
+    this.touchSoftDropTargetY = null;
+  }
   gameOver({ preserveActive = false } = {}) {
     if (DEBUG_NO_GAME_OVER) return false;
     if (!preserveActive) {

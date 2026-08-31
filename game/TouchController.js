@@ -1,5 +1,5 @@
 /**
- * Converts direct playfield pointer gestures into normal gameplay actions.
+ * Converts full-screen touch gestures into normal gameplay actions.
  *
  * A drag changes the controlled polyomino's horizontal grid position.
  * Vertical swipes are reserved for hard drop and Physics Release; the HUD
@@ -47,17 +47,6 @@ export class TouchController {
     return this.manager.root.toLocal(global);
   }
 
-  pointInPlayfield(event) {
-    const point = this.rootPoint(event);
-    const layout = this.manager.playfield.layout;
-    return (
-      point.x >= layout.x &&
-      point.x <= layout.x + layout.scaledWidth &&
-      point.y >= layout.y &&
-      point.y <= layout.y + layout.scaledHeight
-    );
-  }
-
   boardRowAt(event) {
     const point = this.rootPoint(event);
     const layout = this.manager.playfield.layout;
@@ -65,7 +54,9 @@ export class TouchController {
   }
 
   pointerDown(event) {
-    if (!this.isControllable() || !this.pointInPlayfield(event)) return;
+    // Gameplay gestures deliberately use the whole canvas. On a narrow phone
+    // this includes the side HUD, so play is not constrained to the grid.
+    if (!this.isControllable()) return;
     event.preventDefault();
     this.pointer = {
       id: event.pointerId,
@@ -115,6 +106,9 @@ export class TouchController {
     if (!pointer || pointer.id !== event.pointerId) return;
     this.pointer = null;
     this.canvas.releasePointerCapture?.(event.pointerId);
+    // Soft drop is a held gesture. Do not leave a target behind after the
+    // finger lifts, including on browser-generated pointer cancellation.
+    this.manager.clearTouchSoftDropTarget();
     if (!this.isControllable()) return;
     event.preventDefault();
     this.recordSample(pointer, event);
@@ -139,10 +133,6 @@ export class TouchController {
             : flickStart.pieceX,
         );
         this.manager.hardDrop();
-      } else if (deltaY >= TOUCH_SOFT_DROP_START_DISTANCE_PX) {
-        this.manager.setTouchSoftDropTargetY(
-          Math.floor(this.boardRowAt(event)) + TOUCH_SOFT_DROP_FINGER_OFFSET_ROWS,
-        );
       }
       return;
     }

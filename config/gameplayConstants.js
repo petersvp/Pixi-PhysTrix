@@ -38,7 +38,7 @@ export const TOUCH_HARD_DROP_MAX_SWIPE_MS = 260;
 // final window rather than relying on display-frame count, then hard drop when
 // its downward velocity reaches this threshold.
 export const TOUCH_HARD_DROP_FLICK_WINDOW_MS = 120;
-export const TOUCH_HARD_DROP_FLICK_SPEED_PX_PER_SECOND = 700;
+export const TOUCH_HARD_DROP_FLICK_SPEED_PX_PER_SECOND = 500;
 // Slow touch drop targets the current finger row directly. Keeping one grid
 // row below the finger preserves visibility of the controlled polyomino.
 export const TOUCH_SOFT_DROP_FINGER_OFFSET_ROWS = -2;
