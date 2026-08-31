@@ -531,12 +531,12 @@ export class StartMenu {
   }
   buildNumericMenu() {
     const { width } = this.geometry.numeric;
-    this.addHeading(this.numericMenu, "LEVEL / TRASH", width);
+    this.addHeading(this.numericMenu, "SPEED / TRASH", width);
     const group = [];
     [
       {
         id: "level",
-        label: "LEVEL",
+        label: "SPEED",
         get: () => this.level,
         set: (value) => {
           this.level = value;

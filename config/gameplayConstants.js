@@ -82,8 +82,8 @@ export const PHYSICS_RELEASE_SPAWN_MAX_WAIT_MS = 2500;
 export const PHYSICS_MASS = 1;
 // Releasing starts a polyomino at the configured multiple of its fixture
 // density. Its first collision starts a timed return to the base density.
-export const PHYSICS_RELEASE_MASS_MULTIPLIER = 5;
-export const PHYSICS_RELEASE_MASS_RESET_DURATION_MS = 2000;
+export const PHYSICS_RELEASE_MASS_MULTIPLIER = 10;
+export const PHYSICS_RELEASE_MASS_RESET_DURATION_MS = 1000;
 export const PHYSICS_SLIPPERINESS = 0.8;
 export const PHYSICS_FRICTION = 1 - PHYSICS_SLIPPERINESS;
 export const PHYSICS_BOUNCINESS = 0.3;

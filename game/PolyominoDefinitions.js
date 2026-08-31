@@ -8,6 +8,7 @@
 
 import {
   HIGH_ORDER_POLYOMINO_COLOR,
+  PENTOMINO_COLORS,
   POLYOMINO_COLORS,
 } from "../config/colors.js";
 export const SHAPES = Object.freeze({
@@ -187,23 +188,27 @@ const GUIDELINE_DEFINITIONS = Object.freeze(
   ),
 );
 
-// Conventional free pentomino names, prefixed with P so they remain distinct
-// from the Guideline tetromino IDs. Colors follow the supplied pentomino chart.
+// Conventional free pentomino names are prefixed with P so they remain
+// distinct from four-mino IDs. Their palette lives in config/colors.js.
 const PENTOMINO_DEFINITIONS = Object.freeze(
   [
     {
       id: "PF",
-      color: 0xfff27c,
+      color: PENTOMINO_COLORS.PF,
       matrix: [
         [0, 1, 1],
         [1, 1, 0],
         [0, 1, 0],
       ],
     },
-    { id: "PI", color: 0x9289ef, matrix: [[1], [1], [1], [1], [1]] },
+    {
+      id: "PI",
+      color: PENTOMINO_COLORS.PI,
+      matrix: [[1], [1], [1], [1], [1]],
+    },
     {
       id: "PL",
-      color: 0xf08c82,
+      color: PENTOMINO_COLORS.PL,
       matrix: [
         [1, 0],
         [1, 0],
@@ -213,7 +218,7 @@ const PENTOMINO_DEFINITIONS = Object.freeze(
     },
     {
       id: "PN",
-      color: 0x181aa8,
+      color: PENTOMINO_COLORS.PN,
       matrix: [
         [0, 1],
         [1, 1],
@@ -223,7 +228,7 @@ const PENTOMINO_DEFINITIONS = Object.freeze(
     },
     {
       id: "PP",
-      color: 0x78eb91,
+      color: PENTOMINO_COLORS.PP,
       matrix: [
         [1, 1],
         [1, 1],
@@ -232,7 +237,7 @@ const PENTOMINO_DEFINITIONS = Object.freeze(
     },
     {
       id: "PT",
-      color: 0x81e8ed,
+      color: PENTOMINO_COLORS.PT,
       matrix: [
         [1, 1, 1],
         [0, 1, 0],
@@ -241,7 +246,7 @@ const PENTOMINO_DEFINITIONS = Object.freeze(
     },
     {
       id: "PU",
-      color: 0xed94e6,
+      color: PENTOMINO_COLORS.PU,
       matrix: [
         [1, 0, 1],
         [1, 1, 1],
@@ -249,7 +254,7 @@ const PENTOMINO_DEFINITIONS = Object.freeze(
     },
     {
       id: "PV",
-      color: 0x17c4c6,
+      color: PENTOMINO_COLORS.PV,
       matrix: [
         [1, 0, 0],
         [1, 0, 0],
@@ -258,7 +263,7 @@ const PENTOMINO_DEFINITIONS = Object.freeze(
     },
     {
       id: "PW",
-      color: 0x16bb20,
+      color: PENTOMINO_COLORS.PW,
       matrix: [
         [1, 0, 0],
         [1, 1, 0],
@@ -267,7 +272,7 @@ const PENTOMINO_DEFINITIONS = Object.freeze(
     },
     {
       id: "PX",
-      color: 0xd71919,
+      color: PENTOMINO_COLORS.PX,
       matrix: [
         [0, 1, 0],
         [1, 1, 1],
@@ -276,7 +281,7 @@ const PENTOMINO_DEFINITIONS = Object.freeze(
     },
     {
       id: "PY",
-      color: 0xc915c9,
+      color: PENTOMINO_COLORS.PY,
       matrix: [
         [0, 1],
         [1, 1],
@@ -286,7 +291,7 @@ const PENTOMINO_DEFINITIONS = Object.freeze(
     },
     {
       id: "PZ",
-      color: 0xc7c900,
+      color: PENTOMINO_COLORS.PZ,
       matrix: [
         [1, 1, 0],
         [0, 1, 0],

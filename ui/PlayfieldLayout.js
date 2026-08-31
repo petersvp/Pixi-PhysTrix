@@ -23,6 +23,9 @@ import {
   GAME_OVER_PANEL_PADDING,
   GAME_OVER_PANEL_ROW_HEIGHT,
   GAME_OVER_PANEL_WIDTH,
+  GAME_OVER_BACKDROP_BLUR_QUALITY,
+  GAME_OVER_BACKDROP_BLUR_STRENGTH,
+  GAME_OVER_RESTART_INPUT_DELAY_MS,
   GAME_OVER_PLAY_AGAIN_GAP,
   GAME_OVER_PLAY_AGAIN_HEIGHT,
   GAME_OVER_PLAY_AGAIN_WIDTH,
@@ -30,6 +33,9 @@ import {
   GAME_OVER_SCORE_SUFFIX_FONT_SIZE,
   GAME_OVER_ENTER_DURATION_MS,
   GAME_OVER_ENTER_START_SCALE,
+  GAME_OVER_TEXT_ENTER_DURATION_MS,
+  GAME_OVER_TEXT_ENTER_STAGGER_MS,
+  GAME_OVER_TEXT_ENTER_START_SCALE,
   COUNTDOWN_ENTER_DURATION_MS,
   COUNTDOWN_ENTER_START_SCALE,
   GAME_OVER_SHADOW_PADDING,
@@ -489,12 +495,12 @@ export class SinglePlayerHud {
 
   create() {
     this.holdPanel = this.createFrame(
-      "HOLD",
+      "POCKET",
       this.layout.hold,
       this.layout.hold.detached ? null : "left",
     );
     this.nextPanel = this.createFrame(
-      "NEXT",
+      "QUEUE",
       this.layout.next,
       this.layout.next.detached ? null : "right",
     );
@@ -512,7 +518,7 @@ export class SinglePlayerHud {
     this.statsPanel = new PIXI.Container();
     this.statsPanel.label = "statisticsPanel";
     this.statsPanel.position.set(this.layout.stats.x, this.layout.stats.y);
-    this.statsRows = ["SCORE", "LINES", "LEVEL", "TIME"].map((label, index) => {
+    this.statsRows = ["SCORE", "CHAINS", "SPEED", "TIME"].map((label, index) => {
       const title = new PIXI.Text({
         text: label,
         style: {
@@ -829,8 +835,19 @@ export class SinglePlayerHud {
     const glass = new PIXI.Graphics()
       .roundRect(-width / 2, -height / 2, width, height, 16)
       .fill({ color: COLORS.PANEL_BG, alpha: 0.94 });
+    glass.filters = [
+      new PIXI.filters.BackdropBlurFilter({
+        strength: GAME_OVER_BACKDROP_BLUR_STRENGTH,
+        quality: GAME_OVER_BACKDROP_BLUR_QUALITY,
+      }),
+    ];
     panel.addChild(glass);
     this.drawGameOverFrame(panel, width, height);
+    const animatedText = [];
+    const animateText = (text) => {
+      animatedText.push(text);
+      return text;
+    };
 
     const gameWord = this.gameOverTitle("GAME", COLORS.MENU_LOGO);
     const overWord = this.gameOverTitle("OVER", COLORS.MENU_LOGO_TEXT);
@@ -840,7 +857,7 @@ export class SinglePlayerHud {
     const top = -height / 2 + GAME_OVER_PANEL_PADDING + 28;
     gameWord.position.set(-titleWidth / 2, top);
     overWord.position.set(-titleWidth / 2 + gameWord.width + 12, top);
-    panel.addChild(gameWord, overWord);
+    panel.addChild(animateText(gameWord), animateText(overWord));
 
     const scoreLabel = new PIXI.Text({
       text: score.toLocaleString(),
@@ -869,7 +886,7 @@ export class SinglePlayerHud {
       -scoreWidth / 2 + scoreLabel.width + 8,
       top + 56,
     );
-    panel.addChild(scoreLabel, scoreSuffix);
+    panel.addChild(animateText(scoreLabel), animateText(scoreSuffix));
 
     rows.forEach(([label, value], index) => {
       const y = top + 92 + index * GAME_OVER_PANEL_ROW_HEIGHT;
@@ -895,7 +912,7 @@ export class SinglePlayerHud {
       amount.anchor.set(1, 0.5);
       key.position.set(-width / 2 + GAME_OVER_PANEL_PADDING, y);
       amount.position.set(width / 2 - GAME_OVER_PANEL_PADDING, y);
-      panel.addChild(key, amount);
+      panel.addChild(animateText(key), animateText(amount));
     });
 
     const playAgain = new PIXI.Container();
@@ -929,9 +946,10 @@ export class SinglePlayerHud {
     });
     buttonLabel.anchor.set(0.5);
     buttonLabel.position.set(0, buttonY + GAME_OVER_PLAY_AGAIN_HEIGHT / 2);
-    playAgain.addChild(buttonFace, buttonLabel);
+    playAgain.addChild(buttonFace, animateText(buttonLabel));
     playAgain.on("pointertap", (event) => {
       event.stopPropagation?.();
+      if (this.gameOverRestartRemaining > 0) return;
       this.restartAction?.({
         source: event.pointerType === "touch" ? "touch" : "pointer",
         originalEvent: event,
@@ -941,6 +959,18 @@ export class SinglePlayerHud {
 
     this.gameOverMessage.addChild(panel);
     this.gameOverEnterElapsed = 0;
+    this.gameOverRestartRemaining = GAME_OVER_RESTART_INPUT_DELAY_MS;
+    this.gameOverPlayAgain = playAgain;
+    this.gameOverTextEntries = animatedText.map((text, index) => ({
+      text,
+      delay: index * GAME_OVER_TEXT_ENTER_STAGGER_MS,
+    }));
+    this.gameOverTextElapsed = 0;
+    this.gameOverTextEntries.forEach(({ text }) => {
+      text.alpha = 0;
+      text.scale.set(GAME_OVER_TEXT_ENTER_START_SCALE);
+    });
+    playAgain.alpha = 0.42;
     this.gameOverMessage.alpha = 0;
     this.gameOverMessage.scale.set(GAME_OVER_ENTER_START_SCALE);
     this.gameOverMessage.visible = true;
@@ -1035,6 +1065,14 @@ export class SinglePlayerHud {
   }
 
   updateCallout(deltaMS) {
+    if (this.gameOverRestartRemaining > 0) {
+      this.gameOverRestartRemaining = Math.max(
+        0,
+        this.gameOverRestartRemaining - deltaMS,
+      );
+      if (this.gameOverRestartRemaining === 0 && this.gameOverPlayAgain)
+        this.gameOverPlayAgain.alpha = 1;
+    }
     if (this.gameOverEnterElapsed !== undefined) {
       this.gameOverEnterElapsed += deltaMS;
       const amount = Math.min(1, this.gameOverEnterElapsed / GAME_OVER_ENTER_DURATION_MS);
@@ -1044,6 +1082,27 @@ export class SinglePlayerHud {
         GAME_OVER_ENTER_START_SCALE + (1 - GAME_OVER_ENTER_START_SCALE) * eased,
       );
       if (amount >= 1) this.gameOverEnterElapsed = undefined;
+    }
+    if (this.gameOverTextElapsed !== undefined) {
+      this.gameOverTextElapsed += deltaMS;
+      let complete = true;
+      this.gameOverTextEntries?.forEach(({ text, delay }) => {
+        const amount = Math.max(
+          0,
+          Math.min(
+            1,
+            (this.gameOverTextElapsed - delay) / GAME_OVER_TEXT_ENTER_DURATION_MS,
+          ),
+        );
+        const eased = 1 - Math.pow(1 - amount, 3);
+        text.alpha = eased;
+        text.scale.set(
+          GAME_OVER_TEXT_ENTER_START_SCALE +
+            (1 - GAME_OVER_TEXT_ENTER_START_SCALE) * eased,
+        );
+        if (amount < 1) complete = false;
+      });
+      if (complete) this.gameOverTextElapsed = undefined;
     }
     if (this.countdownEnterElapsed !== null && this.countdownEnterElapsed !== undefined) {
       this.countdownEnterElapsed += deltaMS;

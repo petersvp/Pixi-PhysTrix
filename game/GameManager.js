@@ -27,6 +27,7 @@ import {
 import {
   GAME_VIEWPORT_HEIGHT,
   GAME_VIEWPORT_WIDTH,
+  GAME_OVER_RESTART_INPUT_DELAY_MS,
   PORTRAIT_PLAYFIELD_HORIZONTAL_BLEED,
 } from "../config/uiConstants.js";
 import {
@@ -65,6 +66,7 @@ export class GameManager {
     this.lines = 0;
     this.level = 1;
     this.elapsedMs = 0;
+    this.gameOverInputRemaining = 0;
     this.statistics = new GameStatistics();
     this.startLevel = 0;
     this.gravity = 0;
@@ -99,7 +101,7 @@ export class GameManager {
     });
     this.playfield.loadSkin(this.session?.skin);
     this.playfield.setHoldAction(() => this.holdPiece());
-    this.playfield.setRestartAction(() => this.start());
+    this.playfield.setRestartAction(() => this.restartAfterGameOver());
     this.trash = new TrashSystem(this.session?.trash);
     this.gameplay.attach(this);
     this.reflectionCapture = ENABLE_REFLECTION_CAPTURE
@@ -157,6 +159,7 @@ export class GameManager {
     this.queue = new PieceQueue(Math.random, this.session?.polyominoPreset);
     this.score = this.lines = 0;
     this.elapsedMs = 0;
+    this.gameOverInputRemaining = 0;
     this.statistics.reset();
     // The menu exposes Guideline-style starting levels 0 through 15, while
     // the internal scoring and gravity formulas use level 1 as their base.
@@ -330,10 +333,20 @@ export class GameManager {
       this.active = null;
     }
     this.state = GameState.GAME_OVER;
+    this.gameOverInputRemaining = GAME_OVER_RESTART_INPUT_DELAY_MS;
     this.playfield.hud.showGameOver(
       this.score,
       this.statistics.snapshot(this.elapsedMs),
     );
+    return true;
+  }
+  restartAfterGameOver() {
+    if (
+      this.state !== GameState.GAME_OVER ||
+      this.gameOverInputRemaining > 0
+    )
+      return false;
+    this.start();
     return true;
   }
   setPaused(paused) {
@@ -457,7 +470,11 @@ export class GameManager {
       return;
     }
     if (this.state === GameState.GAME_OVER) {
-      if (this.input.take("start")) this.start();
+      this.gameOverInputRemaining = Math.max(
+        0,
+        this.gameOverInputRemaining - ms,
+      );
+      if (this.input.take("start")) this.restartAfterGameOver();
       this.render();
       this.input.endFrame();
       return;

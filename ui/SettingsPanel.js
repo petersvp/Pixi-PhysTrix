@@ -44,6 +44,7 @@ const labelFor = (action) =>
     rotate180: "ROTATE 180",
     softDrop: "SOFT DROP",
     hardDrop: "HARD DROP",
+    hold: "POCKET",
   })[action] || action.toUpperCase();
 const HANDLING_KEYS = new Set(HANDLING_SLIDERS.map(([, key]) => key));
 
