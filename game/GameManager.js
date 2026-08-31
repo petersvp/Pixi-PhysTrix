@@ -310,7 +310,7 @@ export class GameManager {
       this.active.color,
     );
     this.playfield.hardDropPunch();
-    this.lock();
+    this.lock({ hardDrop: true });
     return true;
   }
   softDrop() {
@@ -426,8 +426,8 @@ export class GameManager {
         excessLevels * POST_MAX_GRAVITY_LOCK_REDUCTION_MS,
     );
   }
-  lock() {
-    this.gameplay.lock(this);
+  lock(options) {
+    this.gameplay.lock(this, options);
   }
   rotateActive(amount) {
     const rotated = this.active?.rotate(this.board, amount);

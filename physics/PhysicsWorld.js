@@ -11,6 +11,9 @@ import {
   PHYSICS_FRICTION,
   PHYSICS_BOUNCINESS,
   PHYSICS_MASS,
+  PHYSICS_HARD_DROP_MASS_MULTIPLIER,
+  PHYSICS_HARD_DROP_MASS_IMPACT_HOLD_DURATION_MS,
+  PHYSICS_HARD_DROP_MASS_RESET_DURATION_MS,
   PHYSICS_RELEASE_MASS_MULTIPLIER,
   PHYSICS_RELEASE_MASS_RESET_DURATION_MS,
   VANISH_DURATION_MS,
@@ -55,9 +58,9 @@ export class PhysicsWorld {
       const bodyB = contact.GetFixtureB()?.GetBody?.();
       [bodyA, bodyB].forEach((body) => {
         const data = body?.GetUserData?.();
-        if (!data?.releaseActive) return;
+        if (!data?.temporaryMassActive) return;
         data.contacting = true;
-        data.releaseMassTouched = true;
+        data.temporaryMassTouched = true;
       });
     };
     listener.EndContact = (contact) => {
@@ -65,19 +68,19 @@ export class PhysicsWorld {
       const bodyB = contact.GetFixtureB()?.GetBody?.();
       [bodyA, bodyB].forEach((body) => {
         const data = body?.GetUserData?.();
-        if (!data?.releaseActive) return;
+        if (!data?.temporaryMassActive) return;
         data.contacting = false;
       });
     };
     this.world.SetContactListener(listener);
   }
-  setReleaseMass(body, boost) {
+  setTemporaryMass(body, boost) {
     if (!body) return;
     const data = body.GetUserData();
     if (!data) return;
-    data.releaseMassBoost = Math.max(0, boost);
+    data.temporaryMassBoost = Math.max(0, boost);
     for (let fixture = body.GetFixtureList(); fixture; fixture = fixture.GetNext()) {
-      const density = this.material.density + data.releaseMassBoost;
+      const density = this.material.density + data.temporaryMassBoost;
       // `fixture.density = value` only creates a JavaScript-side property in
       // Box2DWeb. SetDensity updates the native fixture mass used by contact
       // resolution; ResetMassData then updates the compound body's inertia.
@@ -86,43 +89,75 @@ export class PhysicsWorld {
     }
     body.ResetMassData();
   }
-  updateReleaseMass(body, dtMs) {
+  updateTemporaryMass(body, dtMs) {
     const data = body.GetUserData();
-    if (!data || !data.releaseActive) return;
-    // Contact is a one-way state change: a released piece remains heavy
-    // through the fall, then smoothly normalizes even if it bounces away.
-    if (!data.releaseMassTouched) return;
-    const resetDuration = Math.max(1, PHYSICS_RELEASE_MASS_RESET_DURATION_MS);
-    data.releaseMassResetElapsed = Math.min(
+    if (!data || !data.temporaryMassActive) return;
+    // Contact is a one-way state change: a heavy piece remains boosted through
+    // its fall, then smoothly normalizes even if it bounces away.
+    if (!data.temporaryMassTouched) return;
+    data.temporaryMassImpactHoldElapsed = Math.min(
+      data.temporaryMassImpactHoldDurationMs,
+      (data.temporaryMassImpactHoldElapsed || 0) + dtMs,
+    );
+    if (
+      data.temporaryMassImpactHoldElapsed <
+      data.temporaryMassImpactHoldDurationMs
+    )
+      return;
+    const resetDuration = Math.max(1, data.temporaryMassResetDurationMs);
+    data.temporaryMassResetElapsed = Math.min(
       resetDuration,
-      (data.releaseMassResetElapsed || 0) + dtMs,
+      (data.temporaryMassResetElapsed || 0) + dtMs,
     );
     const resetProgress =
-      data.releaseMassResetElapsed / resetDuration;
-    this.setReleaseMass(
+      data.temporaryMassResetElapsed / resetDuration;
+    this.setTemporaryMass(
       body,
       Math.max(
         0,
-        data.releaseMassInitialBoost * (1 - resetProgress),
+        data.temporaryMassInitialBoost * (1 - resetProgress),
       ),
     );
-    if (resetProgress >= 1) data.releaseActive = false;
+    if (resetProgress >= 1) data.temporaryMassActive = false;
   }
-  beginReleaseMass(body) {
+  beginTemporaryMass(
+    body,
+    multiplier,
+    resetDurationMs,
+    impactHoldDurationMs = 0,
+  ) {
     const data = body?.GetUserData?.();
     if (!data) return;
-    data.releaseActive = true;
+    data.temporaryMassActive = true;
     data.contacting = false;
-    data.releaseMassTouched = false;
-    data.releaseMassResetElapsed = 0;
-    data.releaseMassInitialBoost =
-      this.material.density * (PHYSICS_RELEASE_MASS_MULTIPLIER - 1);
-    this.setReleaseMass(body, data.releaseMassInitialBoost);
+    data.temporaryMassTouched = false;
+    data.temporaryMassResetElapsed = 0;
+    data.temporaryMassResetDurationMs = Math.max(1, resetDurationMs);
+    data.temporaryMassImpactHoldElapsed = 0;
+    data.temporaryMassImpactHoldDurationMs = Math.max(0, impactHoldDurationMs);
+    data.temporaryMassInitialBoost =
+      this.material.density * (Math.max(1, multiplier) - 1);
+    this.setTemporaryMass(body, data.temporaryMassInitialBoost);
+  }
+  beginReleaseMass(body) {
+    this.beginTemporaryMass(
+      body,
+      PHYSICS_RELEASE_MASS_MULTIPLIER,
+      PHYSICS_RELEASE_MASS_RESET_DURATION_MS,
+    );
+  }
+  beginHardDropMass(body) {
+    this.beginTemporaryMass(
+      body,
+      PHYSICS_HARD_DROP_MASS_MULTIPLIER,
+      PHYSICS_HARD_DROP_MASS_RESET_DURATION_MS,
+      PHYSICS_HARD_DROP_MASS_IMPACT_HOLD_DURATION_MS,
+    );
   }
   getControlledMassBoost() {
     const data = this.controlBody?.GetUserData?.();
-    if (!data || !data.releaseActive) return 0;
-    return data.releaseMassBoost || 0;
+    if (!data || !data.temporaryMassActive) return 0;
+    return data.temporaryMassBoost || 0;
   }
   createBounds() {
     const {
@@ -296,12 +331,15 @@ export class PhysicsWorld {
       f.restitution = this.material.restitution;
       body.CreateFixture(f).SetUserData(cell);
     });
-    data.releaseActive = false;
-    data.releaseMassBoost = 0;
+    data.temporaryMassActive = false;
+    data.temporaryMassBoost = 0;
     data.contacting = false;
-    data.releaseMassTouched = false;
-    data.releaseMassInitialBoost = 0;
-    data.releaseMassResetElapsed = 0;
+    data.temporaryMassTouched = false;
+    data.temporaryMassInitialBoost = 0;
+    data.temporaryMassResetElapsed = 0;
+    data.temporaryMassResetDurationMs = 0;
+    data.temporaryMassImpactHoldElapsed = 0;
+    data.temporaryMassImpactHoldDurationMs = 0;
     body.SetUserData(data);
     this.bodies.push(body);
     return body;
@@ -486,7 +524,7 @@ export class PhysicsWorld {
     return { vanished, vanishedLines };
   }
   step(ms, now = performance.now()) {
-    this.bodies.forEach((body) => this.updateReleaseMass(body, ms));
+    this.bodies.forEach((body) => this.updateTemporaryMass(body, ms));
     this.world.Step(Math.min(ms / 1000, 1 / 30), 8, 3);
     this.world.ClearForces();
     const scan = this.scan(now);

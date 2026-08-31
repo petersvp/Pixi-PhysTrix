@@ -95,6 +95,7 @@ export class PhysicsGameplay extends GameplayContract {
       spawn = true,
       emitPlacementParticles = true,
       scanImmediately = true,
+      hardDrop = false,
     } = {},
   ) {
     const piece = game.active;
@@ -107,6 +108,7 @@ export class PhysicsGameplay extends GameplayContract {
     const cells = piece.cells().filter((cell) => cell.y >= 0);
     this.physics.destroyControlled();
     const lockedBody = this.physics.lock(piece);
+    if (hardDrop) this.physics.beginHardDropMass(lockedBody);
     if (emitPlacementParticles)
       game.playfield.effects.outlineBurst(
         cells,
