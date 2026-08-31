@@ -1,0 +1,94 @@
+{
+  "values": {
+    "sdfBlend": [0, 0, 0, 0],
+    "previewRange": [0.2800000011920929, 0, 0, 0],
+    "cornerRadius": [0.41999998688697815, 0, 0, 0],
+    "sdfStrength": [1, 0, 0, 0],
+    "sdfDebug": [0, 0, 0, 0],
+    "albedoDarkness": [0, 0, 0, 0],
+    "transparency": [1, 0, 0, 0],
+    "finalAlpha": [1, 0, 0, 0],
+    "light": [-0.44999998807907104, -0.6000000238418579, 0.8999999761581421, 0],
+    "normalEnabled": [0, 0, 0, 0],
+    "normalPreview": [0, 0, 0, 0],
+    "bevelWidth": [0.2800000011920929, 0, 0, 0],
+    "bevelHardness": [1.5, 0, 0, 0],
+    "specularEnabled": [0, 0, 0, 0],
+    "metallic": [0, 0, 0, 0],
+    "smoothness": [0.6499999761581421, 0, 0, 0],
+    "specularTint": [0, 0, 0, 0],
+    "reflectionEnabled": [0, 0, 0, 0],
+    "reflectionOffset": [0, -18, 0, 0],
+    "reflectionDownsample": [1, 0, 0, 0],
+    "sceneSize": [900, 700, 0, 0]
+  },
+  "curves": {
+    "bevelProfile": {
+      "points": [0, 0.9659288194444444],
+      "mode": "linear"
+    },
+    "transparencyCurve": {
+      "points": [
+        0,
+        null,
+        0.9828559027777778,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1
+      ],
+      "mode": "smooth"
+    },
+    "finalAlphaCurve": {
+      "points": [
+        1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1
+      ],
+      "mode": "linear"
+    },
+    "metallicCurve": {
+      "points": [
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0
+      ],
+      "mode": "linear"
+    }
+  }
+}

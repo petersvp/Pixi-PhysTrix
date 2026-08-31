@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "values": {
+    "sdfBlend": [1, 0, 0, 0],
+    "previewRange": [0.2800000011920929, 0, 0, 0],
+    "cornerRadius": [0.9990000128746033, 0, 0, 0],
+    "sdfStrength": [2.009999990463257, 0, 0, 0],
+    "sdfDebug": [0, 0, 0, 0],
+    "albedoDarkness": [0, 0, 0, 0],
+    "transparency": [1, 0, 0, 0],
+    "finalAlpha": [1, 0, 0, 0],
+    "light": [-0.8899999856948853, 0.23999999463558197, 1, 0],
+    "normalEnabled": [1, 0, 0, 0],
+    "normalPreview": [0, 0, 0, 0],
+    "bevelWidth": [3.630000114440918, 0, 0, 0],
+    "bevelHardness": [1.7999999523162842, 0, 0, 0],
+    "specularEnabled": [1, 0, 0, 0],
+    "metallic": [1, 0, 0, 0],
+    "smoothness": [0.3400000035762787, 0, 0, 0],
+    "specularTint": [0.33000001311302185, 0, 0, 0],
+    "specularPower": [99, 0, 0, 0],
+    "edgeTone": [0.33000001311302185, 0, 0, 0],
+    "edgeWidth": [0.25999999046325684, 0, 0, 0],
+    "selfEdgeTone": [-0.17000000178813934, 0, 0, 0],
+    "selfEdgeWidth": [0.08500000089406967, 0, 0, 0],
+    "brokenEdgeTone": [-0.46000000834465027, 0, 0, 0],
+    "brokenEdgeWidth": [0.0949999988079071, 0, 0, 0],
+    "brokenEdgeOffset": [0, 0, 0, 0],
+    "brokenDistortion": [0.9300000071525574, 0, 0, 0],
+    "brokenNoiseScale": [6.5, 0, 0, 0],
+    "brokenSdfBlend": [1, 0, 0, 0],
+    "reflectionEnabled": [0, 0, 0, 0],
+    "reflectionOffset": [0, -18, 0, 0],
+    "reflectionDownsample": [1, 0, 0, 0]
+  },
+  "curves": {
+    "bevelProfile": {
+      "resolution": 8,
+      "points": [0, null, 0.8107638888888888, 1, null, 1, null, 1],
+      "mode": "smooth"
+    },
+    "transparencyCurve": {
+      "resolution": 16,
+      "points": [
+        1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1
+      ],
+      "mode": "linear"
+    },
+    "finalAlphaCurve": {
+      "resolution": 16,
+      "points": [
+        1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1
+      ],
+      "mode": "linear"
+    },
+    "metallicCurve": {
+      "resolution": 8,
+      "points": [1, 0.6981336805555556, null, 0.142578125, 0, null, null, 0],
+      "mode": "smooth"
+    }
+  }
+}

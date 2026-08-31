@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "values": {
+    "sdfBlend": [0.8199999928474426, 0, 0, 0],
+    "previewRange": [0.2800000011920929, 0, 0, 0],
+    "cornerRadius": [0.5860000252723694, 0, 0, 0],
+    "sdfStrength": [2.809999942779541, 0, 0, 0],
+    "sdfDebug": [0, 0, 0, 0],
+    "albedoDarkness": [0, 0, 0, 0],
+    "transparency": [1, 0, 0, 0],
+    "finalAlpha": [1, 0, 0, 0],
+    "light": [-0.1899999976158142, -0.6000000238418579, 0.7300000190734863, 0],
+    "normalEnabled": [1, 0, 0, 0],
+    "normalPreview": [0, 0, 0, 0],
+    "bevelWidth": [1.2899999618530273, 0, 0, 0],
+    "bevelHardness": [5.550000190734863, 0, 0, 0],
+    "specularEnabled": [1, 0, 0, 0],
+    "metallic": [1, 0, 0, 0],
+    "smoothness": [0.10000000149011612, 0, 0, 0],
+    "specularTint": [1, 0, 0, 0],
+    "specularPower": [74, 0, 0, 0],
+    "edgeTone": [0.17000000178813934, 0, 0, 0],
+    "edgeWidth": [0.14000000059604645, 0, 0, 0],
+    "selfEdgeTone": [0.09000000357627869, 0, 0, 0],
+    "selfEdgeWidth": [0.07999999821186066, 0, 0, 0],
+    "brokenEdgeTone": [0.10000000149011612, 0, 0, 0],
+    "brokenEdgeWidth": [0.1599999964237213, 0, 0, 0],
+    "brokenEdgeOffset": [0, 0, 0, 0],
+    "brokenDistortion": [0.8999999761581421, 0, 0, 0],
+    "brokenNoiseScale": [3.5, 0, 0, 0],
+    "brokenSdfBlend": [1, 0, 0, 0],
+    "reflectionEnabled": [0, 0, 0, 0],
+    "reflectionOffset": [-26, -18, 0, 0],
+    "reflectionDownsample": [1, 0, 0, 0]
+  },
+  "curves": {
+    "bevelProfile": {
+      "resolution": 16,
+      "points": [
+        0,
+        null,
+        0.05,
+        null,
+        0.2,
+        null,
+        0.5,
+        null,
+        null,
+        0.78,
+        null,
+        0.94,
+        null,
+        1,
+        null,
+        1
+      ],
+      "mode": "smooth"
+    },
+    "transparencyCurve": {
+      "resolution": 16,
+      "points": [
+        1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1
+      ],
+      "mode": "hold"
+    },
+    "finalAlphaCurve": {
+      "resolution": 16,
+      "points": [
+        1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1
+      ],
+      "mode": "linear"
+    },
+    "metallicCurve": {
+      "resolution": 8,
+      "points": [1, null, null, null, 1, null, null, 0],
+      "mode": "smooth"
+    }
+  }
+}

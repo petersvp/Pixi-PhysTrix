@@ -1,0 +1,236 @@
+/**
+ * Implements the Box2D-backed Physics gameplay mode.
+ * This class owns the physics world, controlled body, release, and simulation.
+ * The shared GameManager supplies input, timing, state, and common rendering.
+ * It converts physics line vanishes into shared score and chain callouts.
+ * Its exports are constructed through the application mode registry.
+ *
+ * This module is part of the gameplay layer of PhysTrix.
+ */
+
+import { GameplayContract } from "./GameplayContract.js";
+import { GameManager } from "../game/GameManager.js";
+import {
+  guidelineAllClearScore,
+  guidelineComboScore,
+  guidelineScore,
+  guidelineSpinScore,
+} from "../game/Scoring.js";
+import {
+  COLS,
+  PHYSICS_RELEASE_SPAWN_MAX_WAIT_MS,
+  PHYSICS_RELEASE_SPAWN_MIN_WAIT_MS,
+  ROWS,
+} from "../config/gameplayConstants.js";
+import {
+  CLEAR_PARTICLE_COUNT_PER_MINO,
+  CLEAR_PARTICLE_FORCE,
+  PLACEMENT_OUTLINE_PARTICLE_COUNT,
+} from "../config/effectsConstants.js";
+
+export class PhysicsGameplay extends GameplayContract {
+  constructor({ mount, session = null, app = null, sceneRoot = null }) {
+    super();
+    this.mount = mount;
+    this.session = session;
+    this.app = app;
+    this.sceneRoot = sceneRoot;
+  }
+  start() {
+    this.game = new GameManager({
+      mount: this.mount,
+      gameplay: this,
+      session: this.session,
+      app: this.app,
+      sceneRoot: this.sceneRoot,
+    });
+  }
+
+  attach(game) {
+    this.physics = game.playfield.createPhysicsWorld(
+      globalThis.Box2D,
+      game.session?.physicsPreset,
+    );
+    game.physics = this.physics;
+    game.board.isValid = (cells) =>
+      cells.every(
+        ({ x, y }) =>
+          x >= 0 && x < COLS && y < ROWS && !this.physics.pointOccupied(x, y),
+      );
+    game.board.raycastClear = (_from, to) => game.board.isValid(to);
+    game.physicsLayer = game.playfield.physicsLayer;
+  }
+
+  reset() {
+    this.physics.clear();
+    this.combo = 0;
+    this.pendingSpin = "";
+    this.pendingSpinOrder = 4;
+    this.awaitingPostLockScan = false;
+    this.releaseWaitElapsed = 0;
+    this.releasePending = false;
+  }
+
+  onSpawn(_game, piece) {
+    this.physics.createControlled(piece);
+  }
+
+  onGameOver() {
+    this.physics.destroyControlled();
+  }
+
+  lock(
+    game,
+    {
+      spawn = true,
+      emitPlacementParticles = true,
+      scanImmediately = true,
+    } = {},
+  ) {
+    const piece = game.active;
+    // A fresh lock closes the prior turn's spin window, whether or not this
+    // newly locked polyomino itself qualifies as a spin.
+    this.pendingSpin = game.detectSpin(piece);
+    this.pendingSpinOrder = piece.order;
+    this.awaitingPostLockScan = true;
+    const cells = piece.cells().filter((cell) => cell.y >= 0);
+    this.physics.destroyControlled();
+    this.physics.lock(piece);
+    if (emitPlacementParticles)
+      game.playfield.effects.outlineBurst(
+        cells,
+        piece.color,
+        PLACEMENT_OUTLINE_PARTICLE_COUNT,
+      );
+    if (scanImmediately) {
+      const scan = this.physics.scanImmediately();
+      // This lock already received its post-lock scan, so do not let a later
+      // periodic scan incorrectly reset the combo while its vanish resolves.
+      if (!scan.rows.length) this.combo = 0;
+      this.awaitingPostLockScan = false;
+    }
+    if (spawn) game.spawn();
+  }
+
+  release(game) {
+    if (this.releasePending) return false;
+    // Releasing is not a Guideline lock: it silently hands the body to the
+    // simulation, without a forced line scan or placement-impact particles.
+    const releasedBody = this.lock(game, {
+      spawn: false,
+      emitPlacementParticles: false,
+      scanImmediately: false,
+    });
+    this.physics.beginReleaseMass(releasedBody);
+    game.active = null;
+    game.grounded = false;
+    game.lockTimer = 0;
+    this.releaseWaitElapsed = 0;
+    this.releasePending = true;
+    return true;
+  }
+
+  isControlFrozen() {
+    return Boolean(this.releasePending || this.physics?.hasPendingVanish());
+  }
+
+  step(game, ms) {
+    if (this.releasePending) {
+      this.releaseWaitElapsed += ms;
+      const minimumElapsed =
+        this.releaseWaitElapsed >= PHYSICS_RELEASE_SPAWN_MIN_WAIT_MS;
+      const maximumElapsed =
+        this.releaseWaitElapsed >= PHYSICS_RELEASE_SPAWN_MAX_WAIT_MS;
+      // After the grace period, wait for the real Box2D point queries to say
+      // the queued spawn is free. The max timeout forces a visible top-out.
+      if (
+        maximumElapsed ||
+        (minimumElapsed && game.canSpawn(game.queue.peek()))
+      ) {
+        this.releasePending = false;
+        game.spawn();
+      }
+    }
+    // A marked line is a short resolve phase. Leave the kinematic body where
+    // it is, but do not resync it from player input until the vanish finishes.
+    if (!this.isControlFrozen() && game.active)
+      this.physics.syncControlled(game.active, ms);
+    const result = this.physics.step(ms);
+    // Combo expiry is evaluated only by the first actual frame-rule scan after
+    // a lock. Empty ticker frames and the vanish delay cannot reset it.
+    if (this.awaitingPostLockScan && result.scanned) {
+      if (!result.rows.length) this.combo = 0;
+      this.awaitingPostLockScan = false;
+    }
+    const vanished = result.vanished;
+    if (!vanished.length) return;
+    const lines =
+      result.vanishedLines.length || Math.floor(vanished.length / COLS);
+    if (!lines) return;
+    game.playfield.matchPunch();
+    vanished.forEach((tile) =>
+      game.playfield.effects.burst(
+        tile.x,
+        tile.y,
+        tile.color,
+        CLEAR_PARTICLE_COUNT_PER_MINO,
+        CLEAR_PARTICLE_FORCE,
+      ),
+    );
+    this.combo += 1;
+    game.lines += lines;
+    game.sound.clear(Math.min(4, lines));
+    const spin = this.pendingSpin;
+    const straightnessMultiplier = result.vanishedLines.length
+      ? result.vanishedLines.reduce(
+          (sum, row) => sum + row.scoreMultiplier,
+          0,
+        ) / result.vanishedLines.length
+      : 1;
+    const perfect =
+      result.vanishedLines.length > 0 &&
+      result.vanishedLines.every((row) => row.perfect);
+    const baseScore = spin
+      ? guidelineSpinScore(
+          spin,
+          Math.min(3, lines),
+          game.level,
+          this.pendingSpinOrder,
+        )
+      : guidelineScore(Math.min(4, lines), game.level);
+    const allClear = this.physics.bodies.length === 0;
+    const pointsAwarded =
+      Math.round(baseScore * straightnessMultiplier) +
+      guidelineComboScore(this.combo, game.level) +
+      (allClear ? guidelineAllClearScore(lines, game.level) : 0);
+    game.score += pointsAwarded;
+    game.level = game.startLevel + ((game.lines / 10) | 0) + 1;
+    const averageRow =
+      vanished.reduce((sum, tile) => sum + tile.y, 0) / vanished.length;
+    game.playfield.hud.showChainCallout(
+      lines,
+      averageRow,
+      this.combo,
+      spin,
+      pointsAwarded,
+      perfect,
+      allClear,
+    );
+    // The spin belongs to the piece that was locked before the currently
+    // controlled polyomino. A successful vanish consumes that one-turn flag.
+    this.pendingSpin = "";
+    this.pendingSpinOrder = 4;
+  }
+
+  render(game) {
+    game.playfield.physicsRenderer.render(this.physics);
+  }
+
+  dispose() {
+    this.physics?.clear();
+  }
+
+  destroy() {
+    this.game?.destroy();
+  }
+}

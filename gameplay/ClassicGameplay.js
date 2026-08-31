@@ -1,0 +1,191 @@
+/**
+ * Implements the discrete, board-backed Classic gameplay mode.
+ * This class owns classic locking, line clears, scoring, and spin callouts.
+ * The shared GameManager supplies input, timing, state, and common rendering.
+ * No simulation bodies are created for this mode.
+ * Its exports are constructed through the application mode registry.
+ *
+ * This module is part of the gameplay layer of PhysTrix.
+ */
+
+import { GameplayContract } from "./GameplayContract.js";
+import { GameManager } from "../game/GameManager.js";
+import {
+  guidelineAllClearScore,
+  guidelineComboScore,
+  guidelineScore,
+  guidelineSpinScore,
+} from "../game/Scoring.js";
+import { chainName } from "../game/ChainSystem.js";
+import {
+  CLASSIC_VANISH_DURATION_MS,
+  CELL,
+} from "../config/gameplayConstants.js";
+import {
+  CLEAR_PARTICLE_COUNT_PER_MINO,
+  CLEAR_PARTICLE_FORCE,
+  PLACEMENT_OUTLINE_PARTICLE_COUNT,
+} from "../config/effectsConstants.js";
+import { COLORS } from "../config/colors.js";
+
+export class ClassicGameplay extends GameplayContract {
+  constructor({ mount, session = null, app = null, sceneRoot = null }) {
+    super();
+    this.mount = mount;
+    this.session = session;
+    this.app = app;
+    this.sceneRoot = sceneRoot;
+  }
+  start() {
+    this.game = new GameManager({
+      mount: this.mount,
+      gameplay: this,
+      session: this.session,
+      app: this.app,
+      sceneRoot: this.sceneRoot,
+    });
+  }
+  reset() {
+    this.resolve = null;
+    this.pendingSpin = "";
+    this.pendingSpinOrder = 4;
+  }
+  isControlFrozen() {
+    return Boolean(this.resolve);
+  }
+
+  lock(game) {
+    const piece = game.active;
+    const spin = game.detectSpin(piece);
+    const lockedCells = piece.cells().filter((cell) => cell.y >= 0);
+    game.playfield.effects.outlineBurst(
+      lockedCells,
+      piece.color,
+      PLACEMENT_OUTLINE_PARTICLE_COUNT,
+    );
+    game.board.lock(piece);
+    game.active = null;
+    this.pendingSpin = spin;
+    this.pendingSpinOrder = piece.order;
+    this.scan(game, true);
+  }
+  scan(game, initial = false) {
+    const rows = game.board.findFullLines();
+    if (rows.length) {
+      game.board.markLines(rows);
+      // Keep the original scan rows while the marked cells are visible. Once
+      // they vanish, board compaction has already changed their coordinates.
+      this.resolve = {
+        phase: "mark",
+        remaining: CLASSIC_VANISH_DURATION_MS,
+        initial,
+        rows,
+      };
+      return;
+    }
+    if (initial) {
+      game.classicCombo = 0;
+      this.awardSpinWithoutClear(game);
+    }
+    this.resolve = null;
+    game.spawn();
+  }
+  awardSpinWithoutClear(game) {
+    if (!this.pendingSpin) return;
+    const pointsAwarded = guidelineSpinScore(
+      this.pendingSpin,
+      0,
+      game.level,
+      this.pendingSpinOrder,
+    );
+    game.score += pointsAwarded;
+    game.playfield.hud.showScoringCallout(this.pendingSpin, {
+      combo: 0,
+      points: pointsAwarded,
+      color: COLORS.SPIN_TEXT,
+      y: game.playfield.layout.y + 2 * CELL * game.playfield.layout.scale,
+    });
+    this.pendingSpin = "";
+  }
+  awardClear(game, lines, clearedRows = []) {
+    game.playfield.matchPunch();
+    const spin = this.pendingSpin;
+    game.lines += lines;
+    game.classicCombo += 1;
+    const allClear = game.board.isEmpty();
+    const pointsAwarded =
+      (spin
+        ? guidelineSpinScore(
+            spin,
+            Math.min(3, lines),
+            game.level,
+            this.pendingSpinOrder,
+          )
+        : guidelineScore(Math.min(4, lines), game.level)) +
+      guidelineComboScore(game.classicCombo, game.level) +
+      (allClear ? guidelineAllClearScore(lines, game.level) : 0);
+    game.score += pointsAwarded;
+    game.level = game.startLevel + ((game.lines / 10) | 0) + 1;
+    game.sound.clear(lines);
+    const clearName = `${chainName(lines)}!`;
+    const primary = allClear
+      ? "PERFECT\nCLEAR!!!"
+      : [spin, clearName].filter(Boolean).join(" ");
+    game.playfield.hud.showScoringCallout(primary, {
+      combo: game.classicCombo,
+      points: pointsAwarded,
+      color: spin
+        ? COLORS.SPIN_TEXT
+        : lines >= 4
+          ? COLORS.MAJOR_CLEAR_TEXT
+          : COLORS.CLEAR_TEXT,
+      majorClear: lines >= 4,
+      lineType: allClear ? clearName : "",
+      perfectClear: allClear,
+      // The callout belongs to the physical line scan, not the board bottom.
+      // Use the center when multiple rows clear together.
+      y:
+        game.playfield.layout.y +
+        Math.max(
+          2,
+          Math.min(
+            game.playfield.layout.rows - 2,
+            clearedRows.length
+              ? clearedRows.reduce((sum, row) => sum + row, 0) /
+                  clearedRows.length
+              : game.playfield.layout.rows - 2,
+          ),
+        ) *
+          CELL *
+          game.playfield.layout.scale,
+    });
+    this.pendingSpin = "";
+    this.pendingSpinOrder = 4;
+  }
+  step(game, ms) {
+    if (!this.resolve) return;
+    if (this.resolve.phase === "mark") {
+      this.resolve.remaining -= ms;
+      if (this.resolve.remaining > 0) return;
+      const lines = game.board.resolveMarkedLines();
+      game.board.lastClearedTiles.forEach((tile) =>
+        game.playfield.effects.burst(
+          tile.x,
+          tile.y,
+          tile.color,
+          CLEAR_PARTICLE_COUNT_PER_MINO,
+          CLEAR_PARTICLE_FORCE,
+        ),
+      );
+      this.awardClear(game, lines, this.resolve.rows);
+      this.resolve.phase = "fall";
+      return;
+    }
+    if (game.board.updateFallAnimation(ms)) return;
+    this.scan(game, false);
+  }
+
+  destroy() {
+    this.game?.destroy();
+  }
+}

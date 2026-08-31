@@ -1,0 +1,207 @@
+/**
+ * Draws live Box2D compound bodies using one adjacency-aware shader quad per mino.
+ * Each body container inherits the Box2D position and rotation after its quads are built.
+ * Stored visual links preserve original rounded-edge masks after a fracture.
+ * Marked minos receive a separate light overlay while retaining the shader material.
+ * Rendering never reads a cached grid; body data is the source of visual state.
+ */
+
+import { CELL } from "../config/gameplayConstants.js";
+import {
+  MARKED_MINO_GLOW_DISTANCE,
+  MARKED_MINO_GLOW_QUALITY,
+  MARKED_MINO_GLOW_STRENGTH,
+  MARKED_MINO_OUTLINE_LIGHTNESS,
+} from "../config/effectsConstants.js";
+import { MinoQuadRenderer } from "./MinoQuadRenderer.js";
+
+const lightenColor = (color, amount) => {
+  const lift = (channel) => Math.round(channel + (255 - channel) * amount);
+  return (
+    (lift((color >> 16) & 0xff) << 16) |
+    (lift((color >> 8) & 0xff) << 8) |
+    lift(color & 0xff)
+  );
+};
+
+export class PhysicsRenderer {
+  constructor(layer, material) {
+    this.layer = layer;
+    this.quads = new MinoQuadRenderer(material);
+    this.bodyLayer = new PIXI.Container();
+    this.bodyLayer.label = "physicsBodyLayer";
+    this.markedLayer = new PIXI.Container();
+    this.markedLayer.label = "markedMinoGlowLayer";
+    this.markedColorLayers = new Map();
+    // Box2D bodies are stable simulation objects. Keep their Pixi nodes alive
+    // as well; recreating meshes, shaders, and filters every ticker frame was
+    // an unbounded allocation churn source during long physics sessions.
+    this.bodyNodes = new Map();
+    this.markedNodes = new Map();
+    this.layer.addChild(this.bodyLayer, this.markedLayer);
+  }
+
+  render(field) {
+    const aliveBodies = new Set();
+    field.bodies.forEach((body) => {
+      aliveBodies.add(body);
+      const data = body.GetUserData();
+      const position = body.GetPosition();
+      const signature = this.visualSignature(data);
+      let node = this.bodyNodes.get(body);
+      if (!node) {
+        node = new PIXI.Container();
+        node.label = "physicsPolyomino";
+        this.bodyNodes.set(body, node);
+        this.bodyLayer.addChild(node);
+      }
+      if (node.visualSignature !== signature) {
+        this.quads.draw(
+          node,
+          data.cells,
+          data.color,
+          (cell) => this.linksForCell(data, cell),
+          1,
+          -data.origin.x,
+          -data.origin.y,
+        );
+        node.visualSignature = signature;
+      }
+      // // Ensure mass label exists as a child
+      // let massLabel = node.children.find(child => child.label === "massLabel");
+      // if (!massLabel) {
+      //   massLabel = new PIXI.Text({
+      //     text: "1",
+      //     style: {
+      //       fontFamily: "Quantico, sans-serif",
+      //       fontSize: 12,
+      //       fontWeight: "bold",
+      //       fill: 0xffff00,
+      //       align: "center",
+      //     },
+      //   });
+      //   massLabel.anchor.set(0.5, 0);
+      //   //massLabel.position.set(0, -36); // Offset above the piece
+      //   massLabel.label = "massLabel";
+      //   node.addChild(massLabel);
+      // }
+      // // Update mass label text
+      // massLabel.text = body.GetMass?.().toFixed(1) ?? "1";
+
+      node.position.set(position.x * CELL, position.y * CELL);
+      node.rotation = body.GetAngle();
+      this.renderMarkedBody(body, data, node, signature);
+    });
+    this.releaseRemovedBodies(aliveBodies);
+  }
+
+  invalidateMaterial() {
+    this.bodyNodes.forEach((node) => {
+      node.visualSignature = null;
+    });
+  }
+
+  linksForCell(data, cell) {
+    return {
+      ...(cell.visualLinks || {
+        top: data.cells.some(
+          (other) => other.x === cell.x && other.y === cell.y - 1,
+        ),
+        right: data.cells.some(
+          (other) => other.x === cell.x + 1 && other.y === cell.y,
+        ),
+        bottom: data.cells.some(
+          (other) => other.x === cell.x && other.y === cell.y + 1,
+        ),
+        left: data.cells.some(
+          (other) => other.x === cell.x - 1 && other.y === cell.y,
+        ),
+        topLeft: data.cells.some(
+          (other) => other.x === cell.x - 1 && other.y === cell.y - 1,
+        ),
+        topRight: data.cells.some(
+          (other) => other.x === cell.x + 1 && other.y === cell.y - 1,
+        ),
+        bottomRight: data.cells.some(
+          (other) => other.x === cell.x + 1 && other.y === cell.y + 1,
+        ),
+        bottomLeft: data.cells.some(
+          (other) => other.x === cell.x - 1 && other.y === cell.y + 1,
+        ),
+      }),
+      broken: cell.broken,
+    };
+  }
+
+  visualSignature(data) {
+    return JSON.stringify([
+      data.color,
+      data.origin,
+      data.cells.map((cell) => [
+        cell.x,
+        cell.y,
+        cell.marked,
+        cell.broken,
+        cell.visualLinks,
+      ]),
+    ]);
+  }
+
+  renderMarkedBody(body, data, bodyNode, bodySignature) {
+    const markedCells = data.cells.filter((cell) => cell.marked);
+    let markedNode = this.markedNodes.get(body);
+    if (!markedCells.length) {
+      if (markedNode) {
+        markedNode.destroy({ children: true });
+        this.markedNodes.delete(body);
+      }
+      return;
+    }
+    const markedColor = lightenColor(data.color, MARKED_MINO_OUTLINE_LIGHTNESS);
+    const markedSignature = `${bodySignature}:${markedColor}`;
+    if (!markedNode) {
+      markedNode = new PIXI.Container();
+      markedNode.label = "markedMinoOverlay";
+      markedNode.filters = [
+        new PIXI.filters.GlowFilter({
+          distance: MARKED_MINO_GLOW_DISTANCE,
+          outerStrength: MARKED_MINO_GLOW_STRENGTH,
+          innerStrength: 0.2,
+          color: markedColor,
+          quality: MARKED_MINO_GLOW_QUALITY,
+          knockout: false,
+        }),
+      ];
+      this.markedNodes.set(body, markedNode);
+      this.markedLayer.addChild(markedNode);
+    }
+    if (markedNode.visualSignature !== markedSignature) {
+      markedNode.removeChildren().forEach((child) => child.destroy());
+      markedCells.forEach((cell) => {
+        const x = (cell.x - data.origin.x) * CELL;
+        const y = (cell.y - data.origin.y) * CELL;
+        markedNode.addChild(
+          new PIXI.Graphics()
+            .roundRect(x + 2, y + 2, CELL - 4, CELL - 4, 5)
+            .stroke({ width: 3, color: markedColor, alpha: 1 }),
+        );
+      });
+      markedNode.visualSignature = markedSignature;
+    }
+    markedNode.position.copyFrom(bodyNode.position);
+    markedNode.rotation = bodyNode.rotation;
+  }
+
+  releaseRemovedBodies(aliveBodies) {
+    this.bodyNodes.forEach((node, body) => {
+      if (aliveBodies.has(body)) return;
+      node.destroy({ children: true });
+      this.bodyNodes.delete(body);
+    });
+    this.markedNodes.forEach((node, body) => {
+      if (aliveBodies.has(body)) return;
+      node.destroy({ children: true });
+      this.markedNodes.delete(body);
+    });
+  }
+}
