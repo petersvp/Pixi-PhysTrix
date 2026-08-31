@@ -1,0 +1,32 @@
+/* Bundled Quantico font family for offline PhysTrix builds. */
+@font-face {
+  font-family: "Quantico";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./quantico-regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Quantico";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./quantico-bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Quantico";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./quantico-italic.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Quantico";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./quantico-bold-italic.ttf") format("truetype");
+}

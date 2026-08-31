@@ -307,6 +307,24 @@ export class StartMenu {
     );
     trix.position.set(phys.x + phys.width, phys.y);
     this.root.addChild(phys, trix);
+
+    // OPEN-SOURCE EDITION BADGE
+    const edition = new PIXI.Text({
+      text: "Open-source edition",
+      style: {
+        fontFamily: "Quantico",
+        fontSize: this.presentation === "vertical" ? 20 : 20,
+        fontWeight: "bold",
+        fill: COLORS.HUD_LABEL,
+        letterSpacing: 1,
+      },
+    });
+    edition.anchor.set(0.5, 0);
+    edition.position.set(
+      this.viewportWidth() / 2,
+      phys.y + Math.max(phys.height, trix.height) - 8,
+    );
+    this.root.addChild(edition);
   }
   addHeading(menu, text, width) {
     const heading = new PIXI.Text({
@@ -729,7 +747,7 @@ export class StartMenu {
   }
   drawFooter() {
     const author = new PIXI.Text({
-      text: "PhysTrix (c) 2026 PeterSvP",
+      text: "PhysTrix © 2026 PeterSvP",
       style: {
         fontFamily: "Quantico",
         fontSize: 12,
@@ -738,7 +756,7 @@ export class StartMenu {
       },
     });
     const legal = new PIXI.Text({
-      text: "Unofficial fan game. Tetris is a trademark of The Tetris Company.",
+      text: "Open-source edition licensed under BSD. All trademarks belong to their respective owners.",
       style: {
         fontFamily: "Quantico",
         fontSize: 10,

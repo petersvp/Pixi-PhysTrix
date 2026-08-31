@@ -4,12 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PhysTrix</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Quantico:ital,wght@0,400;0,700;1,400;1,700&display=swap"
-      rel="stylesheet"
-    />
+    <link href="./vendor/fonts/quantico.css" rel="stylesheet" />
     <style>
       :root {
         color-scheme: dark;
@@ -204,9 +199,9 @@
   </head>
   <body>
     <div id="app"></div>
-    <script src="https://pixijs.download/v8.14.0/pixi.js"></script>
-    <script src="https://filters.pixijs.download/main/pixi-filters.js"></script>
-    <script src="./box2dweb.min.js"></script>
+    <script src="./vendor/pixi/pixi.min.js"></script>
+    <script src="./vendor/pixi/pixi-filters.min.js"></script>
+    <script src="./vendor/box2d/box2dweb.min.js"></script>
     <script type="module" src="./main.js"></script>
   </body>
 </html>

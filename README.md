@@ -84,6 +84,6 @@ The game must be served through a server. Opening `index.html` directly with `fi
 
 ## Notes
 
-PhysTrix is currently designed for desktop browsers. The project loads Quantico and Pixi Filters from public CDNs, so an internet connection is needed for those resources.
+PhysTrix is currently designed for desktop browsers. 
 
 Tetris is a trademark of The Tetris Company. PhysTrix is an unofficial personal fan project.
