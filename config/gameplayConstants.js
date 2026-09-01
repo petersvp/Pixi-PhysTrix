@@ -84,14 +84,13 @@ export const PHYSICS_MASS = 1;
 // Releasing starts a polyomino at the configured multiple of its fixture
 // density. Its first collision starts a timed return to the base density.
 export const PHYSICS_RELEASE_MASS_MULTIPLIER = 20;
-export const PHYSICS_RELEASE_MASS_RESET_DURATION_MS = 2000;
+export const PHYSICS_RELEASE_MASS_RESET_DURATION_MS = 1500;
 
 // A physics hard drop also becomes temporarily heavy on its first impact.
 // Keep this separate from Release so room presets can tune both actions.
-export const PHYSICS_HARD_DROP_MASS_MULTIPLIER = 50;
+export const PHYSICS_HARD_DROP_MASS_MULTIPLIER = 20;
 export const PHYSICS_HARD_DROP_MASS_RESET_DURATION_MS = 200;
 export const PHYSICS_HARD_DROP_MASS_IMPACT_HOLD_DURATION_MS = 16;
 
-export const PHYSICS_SLIPPERINESS = 0.8;
-export const PHYSICS_FRICTION = 1 - PHYSICS_SLIPPERINESS;
+export const PHYSICS_FRICTION = 0.2;
 export const PHYSICS_BOUNCINESS = 0.3;

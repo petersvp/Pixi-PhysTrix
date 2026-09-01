@@ -124,14 +124,14 @@ export class TouchController {
     const lateHardDrop = !!flickStart;
     if (downSwipe) {
       if (elapsed <= TOUCH_HARD_DROP_MAX_SWIPE_MS || lateHardDrop) {
-        // A quick full gesture returns to its starting column. A late flick
-        // returns only to the column where that flick began, preserving any
-        // earlier deliberate drag.
-        this.manager.moveActiveToX(
-          elapsed <= TOUCH_HARD_DROP_MAX_SWIPE_MS
-            ? pointer.startPieceX
-            : flickStart.pieceX,
-        );
+        // Correct the small accidental diagonal that commonly accompanies a
+        // one-column downward flick. Wider movement is deliberate placement,
+        // so never snap it back before the hard drop.
+        const correctionX = elapsed <= TOUCH_HARD_DROP_MAX_SWIPE_MS
+          ? pointer.startPieceX
+          : flickStart.pieceX;
+        if (Math.abs(this.manager.active.x - correctionX) <= 1)
+          this.manager.moveActiveToX(correctionX);
         this.manager.hardDrop();
       }
       return;
