@@ -8,13 +8,13 @@
 export const POLYOMINO_COLORS = Object.freeze({
   // A seven-step hue wheel. I is intentionally yellow, then the rest are
   // separated around the wheel so neighbouring pieces remain readable.
-  I: 0xffdd00,
-  J: 0xdb4b23,
-  L: 0x00ff55,
-  O: 0x0077ff,
-  S: 0xff00c8,
-  T: 0x9700ff,
-  Z: 0x00e5ff,
+  I: 0x27d9f5,
+  J: 0x3877ff,
+  L: 0xff9d2e,
+  O: 0xffdf38,
+  S: 0x44dc67,
+  T: 0xb75cff,
+  Z: 0xff4d68,
 });
 
 // Named pentominoes use their own palette rather than extending the familiar

@@ -4,6 +4,6 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check main.js && node --check app/Application.js && node --check app/Router.js && node --check app/Session.js && node --check app/ModeRegistry.js && node --check menus/MainMenu.js && node --check gameplay/GameplayContract.js && node --check gameplay/ClassicGameplay.js && node --check gameplay/PhysicsGameplay.js && node --check player/PlayerModeRegistry.js && node --check shared/constants.js"
+    "check": "node --check main.js && node --check src/app/Application.js && node --check src/app/Router.js && node --check src/app/Session.js && node --check src/app/ModeRegistry.js && node --check src/menus/MainMenu.js && node --check src/gameplay/GameplayContract.js && node --check src/gameplay/ClassicGameplay.js && node --check src/gameplay/PhysicsGameplay.js && node --check src/player/PlayerModeRegistry.js && node --check src/shared/constants.js"
   }
 }
