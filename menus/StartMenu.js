@@ -7,7 +7,7 @@
  * Skin previews are rendered once into textures and reused by their menu items.
  */
 
-import { COLORS, POLYOMINO_COLORS } from "../config/colors.js";
+import { COLORS } from "../config/colors.js";
 import { GAMEPAD_BUTTON } from "../config/controls.js";
 import { MINO_SKINS } from "../config/skinCatalog.js";
 import { MAX_TRASH_LEVEL } from "../config/trashConstants.js";
@@ -15,11 +15,6 @@ import {
   GAME_VIEWPORT_HEIGHT,
   START_MENU_BUTTON_GAP,
   START_MENU_BUTTON_HEIGHT,
-  START_MENU_AMBIENT_ALPHA,
-  START_MENU_AMBIENT_CELL_SIZE,
-  START_MENU_AMBIENT_MAX_SPEED,
-  START_MENU_AMBIENT_MIN_SPEED,
-  START_MENU_AMBIENT_POLYOMINO_COUNT,
   START_MENU_FOOTER_BOTTOM_PADDING,
   START_MENU_FOOTER_HEIGHT,
   START_MENU_HORIZONTAL_ACTION_ROW_GAP,
@@ -84,13 +79,9 @@ export class StartMenu {
     this.root = new PIXI.Container();
     this.root.label = "startMenuRoot";
     scene.addChild(this.root);
-    this.ambientLayer = new PIXI.Container();
-    this.ambientLayer.label = "startMenuAmbientPolyominoes";
     this.content = new PIXI.Container();
     this.content.label = "startMenuContent";
-    this.root.addChild(this.ambientLayer, this.content);
-    this.ambientPolyominoes = [];
-    this.createAmbientBackground();
+    this.root.addChild(this.content);
     this.resize = () => this.layout();
     this.keydown = (event) => this.handleKey(event);
     this.pollGamepad = () => this.handleGamepad();
@@ -881,74 +872,7 @@ export class StartMenu {
       menu.__startMenuDelay = index * START_MENU_SECTION_STAGGER_MS;
     });
   }
-  createAmbientBackground() {
-    const shapes = [
-      [[0, 0], [1, 0], [0, 1], [1, 1]],
-      [[0, 0], [1, 0], [2, 0], [1, 1]],
-      [[0, 0], [0, 1], [1, 1], [2, 1]],
-      [[0, 0], [1, 0], [1, 1], [2, 1]],
-    ];
-    const colors = Object.values(POLYOMINO_COLORS);
-    const random = (seed) => {
-      const value = Math.sin(seed * 999) * 43758.5453;
-      return value - Math.floor(value);
-    };
-    for (let index = 0; index < START_MENU_AMBIENT_POLYOMINO_COUNT; index++) {
-      const node = new PIXI.Container();
-      node.label = `ambientPolyomino${index}`;
-      const shape = shapes[index % shapes.length];
-      shape.forEach(([x, y]) => {
-        node.addChild(
-          new PIXI.Graphics()
-            .roundRect(
-              x * START_MENU_AMBIENT_CELL_SIZE,
-              y * START_MENU_AMBIENT_CELL_SIZE,
-              START_MENU_AMBIENT_CELL_SIZE - 2,
-              START_MENU_AMBIENT_CELL_SIZE - 2,
-              5,
-            )
-            .fill({
-              color: colors[index % colors.length],
-              alpha: START_MENU_AMBIENT_ALPHA,
-            }),
-        );
-      });
-      node.position.set(
-        random(index + 1) * START_MENU_VIEWPORT_WIDTH,
-        random(index + 11) * GAME_VIEWPORT_HEIGHT,
-      );
-      node.rotation = (random(index + 21) - 0.5) * 0.7;
-      this.ambientLayer.addChild(node);
-      const speed =
-        START_MENU_AMBIENT_MIN_SPEED +
-        random(index + 31) *
-          (START_MENU_AMBIENT_MAX_SPEED - START_MENU_AMBIENT_MIN_SPEED);
-      this.ambientPolyominoes.push({
-        node,
-        vx: (random(index + 41) < 0.5 ? -1 : 1) * speed,
-        vy: (random(index + 51) < 0.5 ? -1 : 1) * speed * 0.55,
-        spin: (random(index + 61) - 0.5) * 0.22,
-      });
-    }
-  }
   update(deltaMS) {
-    const seconds = deltaMS / 1000;
-    const width = this.viewportWidth();
-    const height = this.viewportHeight();
-    this.ambientPolyominoes.forEach((ambient) => {
-      const { node } = ambient;
-      node.x += ambient.vx * seconds;
-      node.y += ambient.vy * seconds;
-      node.rotation += ambient.spin * seconds;
-      if (node.x < -90 || node.x > width + 40) {
-        node.x = Math.max(-90, Math.min(width + 40, node.x));
-        ambient.vx *= -1;
-      }
-      if (node.y < -90 || node.y > height + 40) {
-        node.y = Math.max(-90, Math.min(height + 40, node.y));
-        ambient.vy *= -1;
-      }
-    });
     if (this.leaving) {
       this.exitElapsed += deltaMS;
       const amount = Math.min(1, this.exitElapsed / START_MENU_SECTION_OUT_DURATION_MS);

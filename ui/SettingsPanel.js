@@ -19,6 +19,21 @@ import { AdvancedLineRenderer } from "../render/AdvancedLineRenderer.js";
 import { UIMenu } from "./UIMenu.js";
 import { UIMenuItem } from "./UIMenuItem.js";
 import { UIMenuStack } from "./UIMenuStack.js";
+import {
+  SETTINGS_BIND_BUTTON_WIDTH,
+  SETTINGS_BIND_PAD_BUTTON_WIDTH,
+  SETTINGS_BIND_ROW_HEIGHT,
+  SETTINGS_CONTENT_PADDING_X,
+  SETTINGS_PANEL_HEIGHT,
+  SETTINGS_PANEL_WIDTH,
+  SETTINGS_PANEL_X,
+  SETTINGS_PANEL_Y,
+  SETTINGS_SLIDER_ROW_HEIGHT,
+  SETTINGS_SLIDER_LABEL_X,
+  SETTINGS_SLIDER_TRACK_WIDTH,
+  SETTINGS_SLIDER_TRACK_X,
+  SETTINGS_SLIDER_VALUE_X,
+} from "../config/uiConstants.js";
 
 const HANDLING_SLIDERS = [
   ["DAS", "das", 0, 500],
@@ -76,13 +91,13 @@ export class SettingsPanel {
     this.root.addChild(node);
     return node;
   }
-  button(label, x, y, width, onTap, { navigable = true } = {}) {
+  button(label, x, y, width, onTap, { navigable = true, height = 30 } = {}) {
     const node = new PIXI.Container();
     node.position.set(x, y);
     node.eventMode = "static";
     node.cursor = "pointer";
     const box = new PIXI.Graphics()
-      .roundRect(0, 0, width, 30, 6)
+      .roundRect(0, 0, width, height, 6)
       .fill(COLORS.PANEL_BG)
       .stroke({ width: 2, color: COLORS.PANEL_ACCENT });
     const text = new PIXI.Text({
@@ -95,7 +110,7 @@ export class SettingsPanel {
       },
     });
     text.anchor.set(0.5);
-    text.position.set(width / 2, 15);
+    text.position.set(width / 2, height / 2);
     node.addChild(box, text);
     if (!navigable) {
       // Pointer-only controls such as the window close X are deliberately
@@ -129,35 +144,35 @@ export class SettingsPanel {
     });
     this.menuStack.addMenu(this.menu);
     const glass = new PIXI.Graphics()
-      .roundRect(230, 30, 440, 820, 14)
+      .roundRect(SETTINGS_PANEL_X, SETTINGS_PANEL_Y, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT, 14)
       .fill({ color: COLORS.PANEL_BG, alpha: 0.86 });
-    glass.filterArea = new PIXI.Rectangle(230, 30, 440, 820);
+    glass.filterArea = new PIXI.Rectangle(SETTINGS_PANEL_X, SETTINGS_PANEL_Y, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT);
     glass.filters = [new PIXI.filters.BackdropBlurFilter({ strength: 32, quality: 8 })];
     this.root.addChild(glass);
-    this.frame(230, 30, 440, 820);
-    this.button("X", 246, 48, 34, () => this.cancel(), { navigable: false });
-    this.text("SETTINGS", 294, 50, 28, COLORS.FIELD_TEXT);
-    this.text("HANDLING", 250, 108, 16, COLORS.FIELD_TEXT);
+    this.frame(SETTINGS_PANEL_X, SETTINGS_PANEL_Y, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT);
+    this.button("X", 266, 36, 34, () => this.cancel(), { navigable: false });
+    this.text("SETTINGS", 314, 38, 25, COLORS.FIELD_TEXT);
+    this.text("HANDLING", 270, 86, 15, COLORS.FIELD_TEXT);
     HANDLING_SLIDERS.forEach(([name, key, min, max], index) =>
-      this.slider(name, key, min, max, 143 + index * 48),
+      this.slider(name, key, min, max, 116 + index * SETTINGS_SLIDER_ROW_HEIGHT),
     );
-    this.touchToggle(250, 338);
-    this.text("KEYBOARD / GAMEPAD BINDS", 250, 387, 16, COLORS.FIELD_TEXT);
-    ACTIONS.forEach((action, index) => this.bindRow(action, 418 + index * 34));
+    this.touchToggle(270, 280);
+    this.text("KEYBOARD / GAMEPAD BINDS", 270, 322, 15, COLORS.FIELD_TEXT);
+    ACTIONS.forEach((action, index) => this.bindRow(action, 344 + index * SETTINGS_BIND_ROW_HEIGHT));
     this.status = this.text(
       "Click KEY or PAD, then press an input.",
-      250,
-      770,
+      270,
+      602,
       12,
       COLORS.HUD_LABEL,
     );
-    this.button("SAVE", 390, 805, 120, () => this.save());
-    this.button("CANCEL", 530, 805, 120, () => this.cancel());
+    this.button("SAVE", 390, 625, 110, () => this.save());
+    this.button("CANCEL", 512, 625, 110, () => this.cancel());
     // Navigation controls render last, above the opaque settings card.
     this.root.addChild(this.menuStack);
   }
   touchToggle(x, y) {
-    const width = 420;
+    const width = SETTINGS_PANEL_WIDTH - 20;
     const view = new PIXI.Container();
     view.position.set(x, y - 4);
     const enabled = this.settings.touchAlwaysCw;
@@ -237,34 +252,40 @@ export class SettingsPanel {
     }).draw(this.root, points.reverse());
   }
   slider(name, key, min, max, y) {
-    this.text(name, 250, y, 14);
+    this.text(name, SETTINGS_SLIDER_LABEL_X, y, 14);
     const value = this.text(
       String(this.settings[key]),
-      650,
+      SETTINGS_SLIDER_VALUE_X,
       y,
       14,
       COLORS.FIELD_TEXT,
     );
     value.anchor.set(1, 0);
     const focusOutline = new PIXI.Graphics()
-      .roundRect(242, y - 7, 420, 31, 6)
+      .roundRect(
+        SETTINGS_PANEL_X + SETTINGS_CONTENT_PADDING_X - 8,
+        y - 7,
+        SETTINGS_PANEL_WIDTH - (SETTINGS_CONTENT_PADDING_X - 8) * 2,
+        27,
+        6,
+      )
       .stroke({ width: 3, color: 0xff9d22, alpha: 0.66 });
     focusOutline.visible = false;
     focusOutline.eventMode = "none";
     this.root.addChild(focusOutline);
     const track = new PIXI.Graphics()
-      .moveTo(350, y + 9)
-      .lineTo(600, y + 9)
+      .moveTo(SETTINGS_SLIDER_TRACK_X, y + 8)
+      .lineTo(SETTINGS_SLIDER_TRACK_X + SETTINGS_SLIDER_TRACK_WIDTH, y + 8)
       .stroke({ width: 6, color: COLORS.PANEL_BORDER })
-      .moveTo(350, y + 9)
-      .lineTo(350 + ((this.settings[key] - min) / (max - min)) * 250, y + 9)
+      .moveTo(SETTINGS_SLIDER_TRACK_X, y + 8)
+      .lineTo(SETTINGS_SLIDER_TRACK_X + ((this.settings[key] - min) / (max - min)) * SETTINGS_SLIDER_TRACK_WIDTH, y + 8)
       .stroke({ width: 6, color: COLORS.PANEL_ACCENT });
     track.eventMode = "static";
     track.cursor = "pointer";
     const set = (event) => {
       const p = event.data.getLocalPosition(this.root);
       this.settings[key] = Math.round(
-        Math.max(min, Math.min(max, min + ((p.x - 350) / 250) * (max - min))),
+        Math.max(min, Math.min(max, min + ((p.x - SETTINGS_SLIDER_TRACK_X) / SETTINGS_SLIDER_TRACK_WIDTH) * (max - min))),
       );
       this.draw();
     };
@@ -308,14 +329,14 @@ export class SettingsPanel {
     return true;
   }
   bindRow(action, y) {
-    this.text(labelFor(action), 250, y + 6, 12);
+    this.text(labelFor(action), 270, y + 5, 11);
     const key = KEYBINDS[action].join(" / ");
     const pad = gamepadBindingLabel(GAMEPAD_BINDS[action]);
-    this.button(`KEY: ${key}`, 390, y, 130, () =>
-      this.beginCapture(action, "key"),
+    this.button(`KEY: ${key}`, 390, y, SETTINGS_BIND_BUTTON_WIDTH, () =>
+      this.beginCapture(action, "key"), { height: 26 },
     );
-    this.button(`PAD: ${pad}`, 530, y, 120, () =>
-      this.beginCapture(action, "pad"),
+    this.button(`PAD: ${pad}`, 510, y, SETTINGS_BIND_PAD_BUTTON_WIDTH, () =>
+      this.beginCapture(action, "pad"), { height: 26 },
     );
   }
   beginCapture(action, type) {
@@ -392,7 +413,7 @@ export class SettingsPanel {
     console.log("[PhysTrix] Settings menu opened");
     this.root.position.set(
       (this.app.screen.width - 900) / 2,
-      (this.app.screen.height - 900) / 2,
+      (this.app.screen.height - 720) / 2,
     );
     this.original = {
       settings: { ...this.settings },

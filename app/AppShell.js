@@ -12,6 +12,7 @@ import {
   GAME_VIEWPORT_HEIGHT,
   GAME_VIEWPORT_WIDTH,
 } from "../config/uiConstants.js";
+import { AmbientBackground } from "./AmbientBackground.js";
 
 export class AppShell {
   constructor(root) {
@@ -30,12 +31,20 @@ export class AppShell {
       autoDensity: true,
     });
     this.app.stage.sortableChildren = true;
+    // Register the long-lived shell application before any routed scene is
+    // created, allowing PixiJS DevTools to inspect both menu and game nodes.
+    window.__PIXI_DEVTOOLS__ = { app: this.app };
+    this.ambientBackground = new AmbientBackground(this.app);
+    this.app.stage.addChild(this.ambientBackground.root);
     this.app.canvas.style.position = "fixed";
     this.app.canvas.style.inset = "0";
     this.app.canvas.style.width = "100vw";
     this.app.canvas.style.height = "100vh";
     this.root.replaceChildren(this.app.canvas);
-    this.resize = () => this.app.renderer.resize(innerWidth, innerHeight);
+    this.resize = () => {
+      this.app.renderer.resize(innerWidth, innerHeight);
+      this.ambientBackground.resize();
+    };
     addEventListener("resize", this.resize);
     this.resize();
     return this;

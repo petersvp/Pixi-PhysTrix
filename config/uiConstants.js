@@ -11,6 +11,24 @@ export const GAME_VIEWPORT_HEIGHT = 760;
 // Persistent gameplay top-bar layout, expressed in renderer screen pixels.
 export const TOP_BAR_MARGIN = 16;
 export const TOP_BAR_BUTTON_SIZE = 44;
+
+// Settings overlay. These deliberately target Discord's compact Activity
+// canvas as well as the normal desktop viewport.
+export const SETTINGS_PANEL_WIDTH = 400;
+export const SETTINGS_PANEL_HEIGHT = 680;
+export const SETTINGS_PANEL_X = 250;
+export const SETTINGS_PANEL_Y = 20;
+// Interior alignment for the compact Activity settings card. Keep labels,
+// slider tracks, and values clear of the glass frame on both sides.
+export const SETTINGS_CONTENT_PADDING_X = 24;
+export const SETTINGS_SLIDER_LABEL_X = SETTINGS_PANEL_X + SETTINGS_CONTENT_PADDING_X;
+export const SETTINGS_SLIDER_TRACK_X = SETTINGS_PANEL_X + 135;
+export const SETTINGS_SLIDER_TRACK_WIDTH = 200;
+export const SETTINGS_SLIDER_VALUE_X = SETTINGS_PANEL_X + SETTINGS_PANEL_WIDTH - SETTINGS_CONTENT_PADDING_X;
+export const SETTINGS_SLIDER_ROW_HEIGHT = 40;
+export const SETTINGS_BIND_ROW_HEIGHT = 28;
+export const SETTINGS_BIND_BUTTON_WIDTH = 112;
+export const SETTINGS_BIND_PAD_BUTTON_WIDTH = 108;
 // Portrait gameplay intentionally extends this far beyond each screen edge.
 // It prevents a padded desktop-canvas look while preserving the attached rails.
 export const PORTRAIT_PLAYFIELD_HORIZONTAL_BLEED = 12;
@@ -46,11 +64,13 @@ export const START_MENU_SECTION_IN_DURATION_MS = 260;
 export const START_MENU_SECTION_OUT_DURATION_MS = 170;
 export const START_MENU_SECTION_STAGGER_MS = 55;
 export const START_MENU_SECTION_START_SCALE = 0.86;
-export const START_MENU_AMBIENT_POLYOMINO_COUNT = 20;
-export const START_MENU_AMBIENT_MIN_SPEED = 12;
-export const START_MENU_AMBIENT_MAX_SPEED = 28;
-export const START_MENU_AMBIENT_CELL_SIZE = 32;
-export const START_MENU_AMBIENT_ALPHA = 0.1;
+// Persistent ambient scene background. It is created once by AppShell and
+// remains behind every routed scene, including gameplay and modal overlays.
+export const AMBIENT_POLYOMINO_COUNT = 20;
+export const AMBIENT_POLYOMINO_MIN_SPEED = 12;
+export const AMBIENT_POLYOMINO_MAX_SPEED = 28;
+export const AMBIENT_POLYOMINO_CELL_SIZE = 32;
+export const AMBIENT_POLYOMINO_ALPHA = 0.1;
 
 // Playfield frame and half-particle glow tuning.
 export const PLAYFIELD_OUTER_LINE_WIDTH = 10;
