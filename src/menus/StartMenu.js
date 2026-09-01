@@ -27,6 +27,7 @@ import {
   START_MENU_MOBILE_MIN_VIEWPORT_HEIGHT,
   START_MENU_MOBILE_VIEWPORT_WIDTH,
   START_MENU_NARROW_WIDTH,
+  START_MENU_NUMERIC_VERTICAL_CONTROL_Y,
   START_MENU_RADIUS,
   START_MENU_SECTION_IN_DURATION_MS,
   START_MENU_SECTION_OUT_DURATION_MS,
@@ -602,7 +603,10 @@ export class StartMenu {
           },
         });
         value.anchor.set(0.5);
-        value.position.set(width / 2, 45);
+        const controlY = this.presentation === "vertical"
+          ? START_MENU_NUMERIC_VERTICAL_CONTROL_Y
+          : 45;
+        value.position.set(width / 2, controlY);
         const minus = new PIXI.Text({
           text: "<",
           style: {
@@ -623,8 +627,8 @@ export class StartMenu {
         });
         minus.anchor.set(0.5);
         plus.anchor.set(0.5);
-        minus.position.set(24, 45);
-        plus.position.set(width - 24, 45);
+        minus.position.set(24, controlY);
+        plus.position.set(width - 24, controlY);
         view.addChild(label, value, minus, plus);
       };
       const maximum = setting.id === "trash" ? MAX_TRASH_LEVEL : 15;

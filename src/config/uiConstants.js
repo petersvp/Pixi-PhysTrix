@@ -45,6 +45,9 @@ export const START_MENU_INACTIVE_SECTION_ALPHA = 0.32;
 export const START_MENU_TITLE_FONT_SIZE = 19;
 export const START_MENU_BUTTON_HEIGHT = 50;
 export const START_MENU_BUTTON_GAP = 12;
+// Portrait number selectors are shorter than desktop controls. Their values
+// use a dedicated baseline so the large digits retain bottom-frame padding.
+export const START_MENU_NUMERIC_VERTICAL_CONTROL_Y = 39;
 export const START_MENU_RADIUS = 9;
 export const START_MENU_LOGO_TOP_PADDING = 22;
 export const START_MENU_LOGO_GLOW_EXTENT = 24;
