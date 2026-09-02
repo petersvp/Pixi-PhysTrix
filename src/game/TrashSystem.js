@@ -31,10 +31,15 @@ export class TrashSystem {
 
   cells() {
     const cells = [];
-    for (let y = ROWS - this.level; y < ROWS; y += 1)
+    for (let y = ROWS - this.level; y < ROWS; y += 1) {
+      const row = [];
       for (let x = 0; x < COLS; x += 1)
         if (this.random() < TRASH_CELL_FILL_CHANCE)
-          cells.push({ x, y, trash: true, color: TRASH_MINO_COLOR });
+          row.push({ x, y, trash: true, color: TRASH_MINO_COLOR });
+      if (row.length === COLS)
+        row.splice(Math.floor(this.random() * COLS), 1);
+      cells.push(...row);
+    }
     if (!cells.length && this.level > 0)
       cells.push({
         x: Math.floor(this.random() * COLS),

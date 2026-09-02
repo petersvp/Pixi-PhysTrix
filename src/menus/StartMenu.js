@@ -199,17 +199,17 @@ export class StartMenu {
     const grid =
       this.presentation === "vertical"
         ? [
-            [0, 0],
-            [1, 0],
-            [0, 1],
-            [1, 1],
-          ]
+          [0, 0],
+          [1, 0],
+          [0, 1],
+          [1, 1],
+        ]
         : [
-            [0, 0],
-            [1, 0],
-            [2, 0],
-            [3, 0],
-          ];
+          [0, 0],
+          [1, 0],
+          [2, 0],
+          [3, 0],
+        ];
     this.physicsMenu = this.createMenu(
       "physicsMenu",
       this.geometry.physics,
@@ -897,14 +897,14 @@ export class StartMenu {
         Math.min(
           1,
           (this.sectionEntranceElapsed - menu.__startMenuDelay) /
-            START_MENU_SECTION_IN_DURATION_MS,
+          START_MENU_SECTION_IN_DURATION_MS,
         ),
       );
       const eased = 1 - Math.pow(1 - amount, 3);
       menu.alpha = eased;
       menu.scale.set(
         START_MENU_SECTION_START_SCALE +
-          (1 - START_MENU_SECTION_START_SCALE) * eased,
+        (1 - START_MENU_SECTION_START_SCALE) * eased,
       );
       if (amount < 1) finished = false;
     });
@@ -924,7 +924,10 @@ export class StartMenu {
     for (const skin of MINO_SKINS) {
       try {
         const response = await fetch(
-          `./minoskins/${encodeURIComponent(skin.file)}`,
+          new URL(
+            `../minoskins/${encodeURIComponent(skin.file)}`,
+            import.meta.url,
+          ),
         );
         if (!response.ok) continue;
         loadSkin(await response.json());
