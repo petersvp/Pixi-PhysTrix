@@ -98,6 +98,7 @@ export class GameManager {
       cols: COLS,
       rows: ROWS,
       cell: CELL,
+      skinBaseUrl: this.session?.skinBaseUrl,
     });
     this.playfield.loadSkin(this.session?.skin);
     this.playfield.setHoldAction(() => this.holdPiece());
@@ -460,10 +461,13 @@ export class GameManager {
     ) {
       this.hardDrop();
     }
-    // Entering pause belongs to gameplay. Once paused, PausePanel owns every
-    // resume action so the same P/Escape press cannot close and re-open it.
-    if (this.input.take("pause") && this.state === GameState.PLAYING)
-      this.setPaused(true);
+    // Modes decide whether a pause request is allowed. This lets online modes
+    // reject local pause while solo modes can open their own pause UI before
+    // approving the state transition.
+    if (this.input.take("pause") && this.state === GameState.PLAYING) {
+      const approved = this.onPauseRequest?.({ game: this }) === true;
+      if (approved) this.setPaused(true);
+    }
     if (this.state === GameState.START) {
       this.startCountdownMS -= ms;
       this.updateStartCountdown();

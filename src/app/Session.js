@@ -12,6 +12,7 @@ export class Session {
     physicsPreset = "balanced",
     polyominoPreset = "tetrominoes",
     skin = "skin-soft.json",
+    skinBaseUrl = "minoskins",
     startLevel = 0,
     trash = 0,
   }) {
@@ -20,6 +21,7 @@ export class Session {
     this.physicsPreset = physicsPreset;
     this.polyominoPreset = polyominoPreset;
     this.skin = skin;
+    this.skinBaseUrl = skinBaseUrl;
     this.startLevel = startLevel;
     this.trash = trash;
   }

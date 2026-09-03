@@ -62,7 +62,9 @@ export class Playfield {
     cell = CELL,
     width = GAME_VIEWPORT_WIDTH,
     height = GAME_VIEWPORT_HEIGHT,
+    skinBaseUrl = "minoskins",
   }) {
+    this.skinBaseUrl = skinBaseUrl;
     this.layout = createPlayfieldLayout({ cols, rows, cell, width, height });
     this.localLayout = localLayout(this.layout);
     this.root = new PIXI.Container();
@@ -149,7 +151,9 @@ export class Playfield {
   async loadSkin(fileName) {
     if (!fileName) return 0;
     try {
-      const response = await fetch(`minoskins/${encodeURIComponent(fileName)}`);
+      const response = await fetch(
+        `${this.skinBaseUrl}/${encodeURIComponent(fileName)}`,
+      );
       if (!response.ok) return 0;
       const applied = loadSkin(await response.json(), this.material);
       this.renderer.lastBoardSignature = null;
@@ -163,7 +167,7 @@ export class Playfield {
 
   async loadTrashSkin() {
     try {
-      const response = await fetch(`minoskins/${TRASH_SKIN_FILE}`);
+      const response = await fetch(`${this.skinBaseUrl}/${TRASH_SKIN_FILE}`);
       if (response.ok) loadSkin(await response.json(), this.trashMaterial);
     } catch {
       // Default material remains valid if an optional Trash skin is missing.

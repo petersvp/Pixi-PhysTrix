@@ -165,6 +165,9 @@ export class Application {
         this.settingsPanel.close();
       }
     };
+    // Standalone Core retains its existing pause-panel behavior. Integrations
+    // must explicitly approve a pause request for their own mode rules.
+    game.onPauseRequest = () => true;
     // The renderer completes its own first screen-size update on the next
     // ticker pass. Resolve the gameplay layout there before capturing the
     // scale-in target; this mirrors a browser resize without recreating UI.
