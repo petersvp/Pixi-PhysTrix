@@ -10,15 +10,35 @@ import { CELL } from "../config/gameplayConstants.js";
 import { createMinoShader } from "./MinoShader.js";
 
 export class MinoQuadRenderer {
-  static geometry = new PIXI.MeshGeometry({
-    positions: new Float32Array([0, 0, CELL, 0, CELL, CELL, 0, CELL]),
-    uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
-    indices: new Uint16Array([0, 1, 2, 0, 2, 3]),
-    topology: "triangle-list",
-  });
+  static geometries = new Map();
 
-  constructor(material) {
+  static geometryFor(cellSize) {
+    let geometry = this.geometries.get(cellSize);
+    if (!geometry) {
+      geometry = new PIXI.MeshGeometry({
+        positions: new Float32Array([
+          0,
+          0,
+          cellSize,
+          0,
+          cellSize,
+          cellSize,
+          0,
+          cellSize,
+        ]),
+        uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+        indices: new Uint16Array([0, 1, 2, 0, 2, 3]),
+        topology: "triangle-list",
+      });
+      this.geometries.set(cellSize, geometry);
+    }
+    return geometry;
+  }
+
+  constructor(material, { cellSize = CELL } = {}) {
     this.material = material;
+    this.cellSize = cellSize;
+    this.geometry = MinoQuadRenderer.geometryFor(cellSize);
   }
 
   draw(
@@ -35,14 +55,14 @@ export class MinoQuadRenderer {
     cells.forEach((cell) => {
       const links = linksForCell(cell);
       const quad = new PIXI.Mesh({
-        geometry: MinoQuadRenderer.geometry,
+        geometry: this.geometry,
         shader: createMinoShader(color, links, material),
       });
       // Use source-alpha compositing for translucent shader faces and bevels.
       quad.blendMode = "normal";
       quad.position.set(
-        ((cell.renderX ?? cell.x) + offsetX) * CELL,
-        ((cell.renderY ?? cell.y) + offsetY) * CELL,
+        ((cell.renderX ?? cell.x) + offsetX) * this.cellSize,
+        ((cell.renderY ?? cell.y) + offsetY) * this.cellSize,
       );
       quad.alpha = alpha;
       container.addChild(quad);

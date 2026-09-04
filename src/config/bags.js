@@ -91,6 +91,7 @@ export function createTrueRandomBag(random = Math.random) {
 
 // These presets map directly to the room preset names exposed in the menu.
 export function bagGeneratorForPreset(preset, random = Math.random, fallback) {
+  if (preset === "monominoes") return definitionsForOrder(1);
   if (preset === "tetrominoes") return definitionsForOrder(4);
   if (preset === "pentominoes") return definitionsForOrder(5);
   if (preset === "tetra-penta") return createTetrominoPentominoBag();

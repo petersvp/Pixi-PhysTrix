@@ -8,9 +8,11 @@
 
 export const PLACEMENT_OUTLINE_PARTICLE_COUNT = 50;
 export const CLEAR_PARTICLE_COUNT_PER_MINO = 25;
-// Shared clear-burst velocity multiplier. Increase this for more energetic
-// line clears without increasing the number of active particle objects.
-export const CLEAR_PARTICLE_FORCE = 1.35;
+// Clear bursts use board axes; fracture bursts use each mino's rotated axes.
+export const LINE_CLEAR_PARTICLE_HORIZONTAL_FORCE = 3;
+export const LINE_CLEAR_PARTICLE_VERTICAL_FORCE = 1.35;
+export const MINO_BREAK_PARTICLE_HORIZONTAL_FORCE = 5;
+export const MINO_BREAK_PARTICLE_VERTICAL_FORCE = 5;
 // Glow treatment for minos awaiting a physics line-clear vanish.
 export const MARKED_MINO_GLOW_DISTANCE = 12;
 export const MARKED_MINO_GLOW_STRENGTH = 1.4;

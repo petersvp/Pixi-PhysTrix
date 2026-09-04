@@ -6,12 +6,12 @@
  */
 
 /** Box2D point-query helpers; callers own fixture filtering policy. */
-export const pointOccupied = (world, point, accept) => {
-  let hit = false;
+export const fixtureAtPoint = (world, point, accept) => {
+  let hit = null;
   world.QueryAABB(
-    (f) => {
-      if (accept(f) && f.TestPoint(point)) {
-        hit = true;
+    (fixture) => {
+      if (accept(fixture) && fixture.TestPoint(point)) {
+        hit = fixture;
         return false;
       }
       return true;
@@ -19,4 +19,8 @@ export const pointOccupied = (world, point, accept) => {
     { lowerBound: point, upperBound: point },
   );
   return hit;
+};
+
+export const pointOccupied = (world, point, accept) => {
+  return Boolean(fixtureAtPoint(world, point, accept));
 };

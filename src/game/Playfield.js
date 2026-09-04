@@ -23,11 +23,7 @@ import {
   loadSkin,
 } from "../render/ShaderSettings.js";
 import { TRASH_SKIN_FILE } from "../config/trashConstants.js";
-import {
-  applyPlayfieldLayout,
-  createPlayfieldLayout,
-  SinglePlayerHud,
-} from "../ui/PlayfieldLayout.js";
+import { createPlayfieldLayout, SinglePlayerHud } from "../ui/PlayfieldLayout.js";
 import {
   PLAYFIELD_HARD_DROP_PUNCH,
   PLAYFIELD_MATCH_PUNCH,
@@ -74,8 +70,14 @@ export class Playfield {
     this.announcements.label = "playfieldAnnouncements";
     root.addChild(this.root, this.announcements);
 
+    // This is the sole board-space transform: its local coordinates are grid
+    // units (one unit per mino cell), with origin at the field's top-left.
+    this.gridRoot = new PIXI.Container();
+    this.gridRoot.label = "playfieldGrid";
+    this.gridRoot.position.set(this.localLayout.x, this.localLayout.y);
+    this.gridRoot.scale.set(this.localLayout.scale * CELL);
     this.gridLayer = new PIXI.Graphics();
-    this.gridLayer.label = "playfieldGrid";
+    this.gridLayer.label = "playfieldGridBackground";
     this.minoLayer = new PIXI.Container();
     this.minoLayer.label = "classicMinoLayer";
     this.glowLayer = new PIXI.Container();
@@ -84,13 +86,21 @@ export class Playfield {
     this.frameLayer.label = "playfieldFrameOverlay";
     this.effectsLayer = new PIXI.Container();
     this.effectsLayer.label = "playfieldEffects";
-    this.root.addChild(
+    const pixelLayers = [
       this.gridLayer,
       this.minoLayer,
       this.glowLayer,
       this.effectsLayer,
       this.frameLayer,
-    );
+    ];
+    // Existing board and effect renderers author geometry in CELL pixels.
+    // Keep that implementation intact behind an inverse scale while the
+    // public playfield coordinate space remains normalized grid units.
+    pixelLayers.forEach((layer) => {
+      layer.scale.set(1 / CELL);
+      this.gridRoot.addChild(layer);
+    });
+    this.root.addChild(this.gridRoot);
     // Geometry and shader source are shared globally; every Playfield retains
     // independently mutable uniforms, curves, and skin resources.
     this.material = createShaderSettings();
@@ -105,13 +115,6 @@ export class Playfield {
       this.trashMaterial,
     );
     this.effects = new EffectsRenderer(this.effectsLayer);
-    applyPlayfieldLayout(this.localLayout, [
-      this.gridLayer,
-      this.minoLayer,
-      this.glowLayer,
-      this.frameLayer,
-      this.effectsLayer,
-    ]);
     this.hud = new SinglePlayerHud({
       root: this.root,
       layout: this.localLayout,
@@ -119,7 +122,6 @@ export class Playfield {
       overlayLayout: this.layout,
       material: this.material,
     });
-    this.root.addChild(this.frameLayer);
     this.punch = { scale: 0, y: 0, rotation: 0, life: 0 };
   }
 
@@ -127,11 +129,10 @@ export class Playfield {
     this.physics = new PhysicsWorld(api, preset);
     this.physicsLayer = new PIXI.Container();
     this.physicsLayer.label = "physicsMinoLayer";
-    this.root.addChildAt(
+    this.gridRoot.addChildAt(
       this.physicsLayer,
-      this.root.getChildIndex(this.frameLayer),
+      this.gridRoot.getChildIndex(this.frameLayer),
     );
-    applyPlayfieldLayout(this.localLayout, [this.physicsLayer]);
     this.physicsRenderer = new PhysicsRenderer(
       this.physicsLayer,
       this.material,

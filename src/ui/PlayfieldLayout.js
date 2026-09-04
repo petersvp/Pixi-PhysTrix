@@ -727,6 +727,9 @@ export class SinglePlayerHud {
     // Countdown callouts are deliberately dominant; the normal HUD prompt is
     // never used during scene entry, so it can safely use this larger style.
     this.message.style.fontSize = 156;
+    this.message.style.dropShadowDistance = START_MESSAGE_SHADOW_DISTANCE;
+    this.message.style.dropShadowBlur = START_MESSAGE_SHADOW_BLUR;
+    this.message.style.dropShadowAlpha = START_MESSAGE_SHADOW_ALPHA;
     this.message.visible = true;
     // GO! stays steady. Only the numeric beats receive the scale-in motion.
     this.countdownEnterElapsed = text === "GO!" ? null : 0;
@@ -734,6 +737,19 @@ export class SinglePlayerHud {
     this.message.scale.set(
       text === "GO!" ? 1 : COUNTDOWN_ENTER_START_SCALE,
     );
+  }
+
+  showPaused() {
+    this.gameOverMessage.visible = false;
+    this.message.text = "PAUSED";
+    this.message.style.fontSize = 39;
+    this.message.style.dropShadowDistance = START_MESSAGE_SHADOW_DISTANCE * 4;
+    this.message.style.dropShadowBlur = START_MESSAGE_SHADOW_BLUR * 4;
+    this.message.style.dropShadowAlpha = 1;
+    this.message.visible = true;
+    this.message.alpha = 1;
+    this.message.scale.set(1);
+    this.countdownEnterElapsed = undefined;
   }
 
   gameOverTitle(text, color) {
@@ -988,6 +1004,7 @@ export class SinglePlayerHud {
       combo = 0,
       points = 0,
       color = COLORS.CALLOUT_TEXT,
+      x = this.overlayLayout.centerX,
       y = 115,
       majorClear = false,
       lineType = "",
@@ -1021,7 +1038,10 @@ export class SinglePlayerHud {
     );
     this.calloutPoints.visible = points > 0;
     // A Perfect Clear is a board-wide event, rather than a local line event.
-    this.callout.position.y = perfectClear ? this.overlayLayout.centerY : y;
+    this.callout.position.set(
+      perfectClear ? this.overlayLayout.centerX : x,
+      perfectClear ? this.overlayLayout.centerY : y,
+    );
     this.callout.alpha = 1;
     this.callout.scale.set(CALLOUT_POP_SCALE);
     this.calloutLife =

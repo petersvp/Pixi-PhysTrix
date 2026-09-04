@@ -133,23 +133,68 @@ const horizontalSpawnMatrix = (matrix) => {
   return best;
 };
 const catalogCache = new Map();
+// Heptomino catalogs are already large enough to be unsuitable for an
+// interactive room-settings preview. Enumerate only through hexominoes.
+const MAX_ENUMERATED_ORDER = 6;
+const CARDINAL_DIRECTIONS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+
+// Grow a single connected shape without ever walking the complete catalog.
+// Choosing from the open edge list guarantees progress for every requested
+// order, including deliberately absurd custom-room values.
+const randomConnectedCells = (order, random) => {
+  const cells = [{ x: 0, y: 0 }];
+  const occupied = new Set(["0,0"]);
+  const edges = CARDINAL_DIRECTIONS.map(([x, y]) => ({ x, y }));
+  while (cells.length < order) {
+    const index = Math.floor(random() * edges.length);
+    const candidate = edges.splice(index, 1)[0];
+    const key = `${candidate.x},${candidate.y}`;
+    if (occupied.has(key)) continue;
+    occupied.add(key);
+    cells.push(candidate);
+    CARDINAL_DIRECTIONS.forEach(([dx, dy]) => {
+      const neighbor = { x: candidate.x + dx, y: candidate.y + dy };
+      if (!occupied.has(`${neighbor.x},${neighbor.y}`)) edges.push(neighbor);
+    });
+  }
+  return normalize(cells);
+};
+
+// High-order fixed-polyomino enumeration grows explosively. Room rules still
+// need playable samples, so generate a small deterministic catalog instead of
+// ever expanding the complete search tree beyond the safe order boundary.
+const sampledCatalogCells = (order) => {
+  let state = (order * 2654435761) >>> 0;
+  const random = () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const result = new Map();
+  // The output is capped at `order`, while attempts are only a small multiple
+  // of it. This remains negligible even when a room requests order 99.
+  for (
+    let attempt = 0;
+    attempt < order * 32 && result.size < order;
+    attempt += 1
+  ) {
+    const normalized = randomConnectedCells(order, random);
+    result.set(canonicalKey(normalized), normalized);
+  }
+  return [...result.values()];
+};
 
 // Enumerate fixed (rotation-distinct, reflection-preserving) connected
 // polyominoes once. The room-rule orders are deliberately small (3-6).
 const generateCatalog = (order) => {
   if (catalogCache.has(order)) return catalogCache.get(order);
   let shapes = [[{ x: 0, y: 0 }]];
-  for (let size = 1; size < order; size++) {
+  if (order > MAX_ENUMERATED_ORDER) shapes = sampledCatalogCells(order);
+  else for (let size = 1; size < order; size++) {
     const next = new Map();
     shapes.forEach((shape) => {
       const occupied = new Set(shape.map(({ x, y }) => `${x},${y}`));
       shape.forEach(({ x, y }) => {
-        [
-          [0, -1],
-          [1, 0],
-          [0, 1],
-          [-1, 0],
-        ].forEach(([dx, dy]) => {
+        [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
           const candidate = { x: x + dx, y: y + dy };
           if (occupied.has(`${candidate.x},${candidate.y}`)) return;
           const expanded = normalize([...shape, candidate]);
@@ -361,6 +406,25 @@ export const definitionsForOrder = (order) =>
     : Number(order) === 5
       ? PENTOMINO_DEFINITIONS
       : generateCatalog(Number(order));
+
+// Counted high-order bag entries are intentionally generated afresh instead
+// of sampling the small fallback catalog used by ALL entries.
+export const randomDefinitionForOrder = (order, random = Math.random) => {
+  const numericOrder = Math.max(1, Math.floor(Number(order) || 1));
+  if (numericOrder <= MAX_ENUMERATED_ORDER) {
+    const catalog = definitionsForOrder(numericOrder);
+    return catalog[Math.floor(random() * catalog.length)];
+  }
+  return Object.freeze({
+    id: `P${numericOrder}-RANDOM`,
+    order: numericOrder,
+    matrix: horizontalSpawnMatrix(
+      toMatrix(randomConnectedCells(numericOrder, random)),
+    ),
+    color: HIGH_ORDER_POLYOMINO_COLOR,
+    spinLabel: `${numericOrder}-SPIN`,
+  });
+};
 export const resolvePolyominoDefinition = (source) => {
   if (source && typeof source === "object" && source.matrix) return source;
   return (

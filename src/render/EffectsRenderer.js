@@ -39,17 +39,31 @@ export class EffectsRenderer {
     });
   }
 
-  burst(cellX, cellY, color, count = 10, force = 1) {
+  burst(
+    cellX,
+    cellY,
+    color,
+    count = 10,
+    horizontalForce = 1,
+    verticalForce = 1,
+    angle = 0,
+  ) {
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
     for (let index = 0; index < count; index++) {
-      const angle = (Math.PI * 2 * index) / count + Math.random() * 0.25;
-      const speed = (35 + Math.random() * 70) * force;
+      // Force is emitted along local horizontal/vertical mino sides. The
+      // angle is zero for line clears and the body rotation for fractures.
+      const localX =
+        (index & 1 ? 1 : -1) * (35 + Math.random() * 70) * horizontalForce;
+      const localY =
+        (index & 2 ? 1 : -1) * (35 + Math.random() * 70) * verticalForce;
       this.spawn(
         cellX + 0.5,
         cellY + 0.5,
         color,
-        Math.cos(angle) * speed,
-        Math.sin(angle) * speed - 35 * force,
-        force,
+        localX * cosine - localY * sine,
+        localX * sine + localY * cosine,
+        Math.max(horizontalForce, verticalForce),
       );
     }
   }

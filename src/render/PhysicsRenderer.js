@@ -6,7 +6,6 @@
  * Rendering never reads a cached grid; body data is the source of visual state.
  */
 
-import { CELL } from "../config/gameplayConstants.js";
 import {
   MARKED_MINO_GLOW_DISTANCE,
   MARKED_MINO_GLOW_QUALITY,
@@ -14,6 +13,7 @@ import {
   MARKED_MINO_OUTLINE_LIGHTNESS,
 } from "../config/effectsConstants.js";
 import { MinoQuadRenderer } from "./MinoQuadRenderer.js";
+import { polyominoCentroid } from "../game/Polyomino.js";
 
 const lightenColor = (color, amount) => {
   const lift = (channel) => Math.round(channel + (255 - channel) * amount);
@@ -27,8 +27,8 @@ const lightenColor = (color, amount) => {
 export class PhysicsRenderer {
   constructor(layer, material, trashMaterial = material) {
     this.layer = layer;
-    this.quads = new MinoQuadRenderer(material);
-    this.trashQuads = new MinoQuadRenderer(trashMaterial);
+    this.quads = new MinoQuadRenderer(material, { cellSize: 1 });
+    this.trashQuads = new MinoQuadRenderer(trashMaterial, { cellSize: 1 });
     this.bodyLayer = new PIXI.Container();
     this.bodyLayer.label = "physicsBodyLayer";
     this.markedLayer = new PIXI.Container();
@@ -38,6 +38,7 @@ export class PhysicsRenderer {
     // as well; recreating meshes, shaders, and filters every ticker frame was
     // an unbounded allocation churn source during long physics sessions.
     this.bodyNodes = new Map();
+    this.bodyData = new Map();
     this.markedNodes = new Map();
     this.layer.addChild(this.bodyLayer, this.markedLayer);
   }
@@ -47,24 +48,26 @@ export class PhysicsRenderer {
     field.bodies.forEach((body) => {
       aliveBodies.add(body);
       const data = body.GetUserData();
+      this.bodyData.set(body, data);
       const position = body.GetPosition();
       const signature = this.visualSignature(data);
       let node = this.bodyNodes.get(body);
       if (!node) {
         node = new PIXI.Container();
-        node.label = "physicsPolyomino";
+        node.label = `physicsPolyomino:${data.polyominoId ?? "untracked"}`;
         this.bodyNodes.set(body, node);
         this.bodyLayer.addChild(node);
       }
       if (node.visualSignature !== signature) {
+        const centroid = polyominoCentroid(data.cells);
         (data.trash ? this.trashQuads : this.quads).draw(
           node,
           data.cells,
           data.color,
           (cell) => this.linksForCell(data, cell),
           1,
-          -data.origin.x,
-          -data.origin.y,
+          -centroid.x,
+          -centroid.y,
         );
         node.visualSignature = signature;
       }
@@ -89,7 +92,9 @@ export class PhysicsRenderer {
       // // Update mass label text
       // massLabel.text = body.GetMass?.().toFixed(1) ?? "1";
 
-      node.position.set(position.x * CELL, position.y * CELL);
+      // `physicsLayer` is a normalized playfield grid. The body container is
+      // therefore directly usable by a replay/network presentation layer.
+      node.position.set(position.x, position.y);
       node.rotation = body.GetAngle();
       this.renderMarkedBody(body, data, node, signature);
     });
@@ -179,13 +184,14 @@ export class PhysicsRenderer {
     }
     if (markedNode.visualSignature !== markedSignature) {
       markedNode.removeChildren().forEach((child) => child.destroy());
+      const centroid = polyominoCentroid(data.cells);
       markedCells.forEach((cell) => {
-        const x = (cell.x - data.origin.x) * CELL;
-        const y = (cell.y - data.origin.y) * CELL;
+        const x = cell.x - centroid.x;
+        const y = cell.y - centroid.y;
         markedNode.addChild(
           new PIXI.Graphics()
-            .roundRect(x + 2, y + 2, CELL - 4, CELL - 4, 5)
-            .stroke({ width: 3, color: markedColor, alpha: 1 }),
+            .roundRect(x + 0.06, y + 0.06, 0.88, 0.88, 0.14)
+            .stroke({ width: 0.08, color: markedColor, alpha: 1 }),
         );
       });
       markedNode.visualSignature = markedSignature;
@@ -199,6 +205,7 @@ export class PhysicsRenderer {
       if (aliveBodies.has(body)) return;
       node.destroy({ children: true });
       this.bodyNodes.delete(body);
+      this.bodyData.delete(body);
     });
     this.markedNodes.forEach((node, body) => {
       if (aliveBodies.has(body)) return;

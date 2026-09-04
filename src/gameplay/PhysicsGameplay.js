@@ -25,7 +25,10 @@ import {
 } from "../config/gameplayConstants.js";
 import {
   CLEAR_PARTICLE_COUNT_PER_MINO,
-  CLEAR_PARTICLE_FORCE,
+  LINE_CLEAR_PARTICLE_HORIZONTAL_FORCE,
+  LINE_CLEAR_PARTICLE_VERTICAL_FORCE,
+  MINO_BREAK_PARTICLE_HORIZONTAL_FORCE,
+  MINO_BREAK_PARTICLE_VERTICAL_FORCE,
   PLACEMENT_OUTLINE_PARTICLE_COUNT,
 } from "../config/effectsConstants.js";
 import {
@@ -190,6 +193,40 @@ export class PhysicsGameplay extends GameplayContract {
       if (!result.rows.length) this.combo = 0;
       this.awaitingPostLockScan = false;
     }
+    if (result.broken.length) {
+      // Each penetrated mino is worth half of a guideline single. This is
+      // separate from line statistics and combo progression.
+      const breakPoints = Math.round(
+        result.broken.length * guidelineScore(1, game.level) * 0.5,
+      );
+      game.score += breakPoints;
+      result.broken.forEach((tile) =>
+        game.playfield.effects.burst(
+          tile.x,
+          tile.y,
+          tile.color,
+          CLEAR_PARTICLE_COUNT_PER_MINO * 3,
+          MINO_BREAK_PARTICLE_HORIZONTAL_FORCE,
+          MINO_BREAK_PARTICLE_VERTICAL_FORCE,
+          tile.angle,
+        ),
+      );
+      const averageRow =
+        result.broken.reduce((sum, tile) => sum + tile.y, 0) /
+        result.broken.length;
+      const averageColumn =
+        result.broken.reduce((sum, tile) => sum + tile.x, 0) /
+        result.broken.length;
+      game.playfield.hud.showScoringCallout(`+${breakPoints}`, {
+        color: result.broken[0].color,
+        x:
+          game.playfield.layout.x +
+          (averageColumn + 0.5) * CELL * game.playfield.layout.scale,
+        y:
+          game.playfield.layout.y +
+          averageRow * CELL * game.playfield.layout.scale,
+      });
+    }
     const vanished = result.vanished;
     if (!vanished.length) return;
     const lines =
@@ -202,7 +239,8 @@ export class PhysicsGameplay extends GameplayContract {
         tile.y,
         tile.color,
         CLEAR_PARTICLE_COUNT_PER_MINO,
-        CLEAR_PARTICLE_FORCE,
+        LINE_CLEAR_PARTICLE_HORIZONTAL_FORCE,
+        LINE_CLEAR_PARTICLE_VERTICAL_FORCE,
       ),
     );
     this.combo += 1;

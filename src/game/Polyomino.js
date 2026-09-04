@@ -11,6 +11,15 @@ import { COLS } from "../config/gameplayConstants.js";
 import { TYPES, resolvePolyominoDefinition } from "./PolyominoDefinitions.js";
 import { rotationKicksFor } from "./SRS.js";
 const clone = (m) => m.map((r) => r.slice());
+
+// Every renderer and network consumer derives a polyomino's local origin from
+// its ordered integer cells.  Keeping this calculation here avoids serializing
+// fractional mesh offsets and makes a shape's local geometry reproducible.
+export const polyominoCentroid = (cells) => ({
+  x: cells.reduce((sum, cell) => sum + cell.x + 0.5, 0) / cells.length,
+  y: cells.reduce((sum, cell) => sum + cell.y + 0.5, 0) / cells.length,
+});
+
 export class Polyomino {
   constructor(source = TYPES[(Math.random() * TYPES.length) | 0]) {
     this.definition = resolvePolyominoDefinition(source);
@@ -31,6 +40,9 @@ export class Polyomino {
       r.forEach((v, px) => v && cells.push({ x: x + px, y: y + py })),
     );
     return cells;
+  }
+  visualCenter() {
+    return polyominoCentroid(this.cells());
   }
   static rotateMatrix(m, cw = true) {
     const t = m[0].map((_, x) => m.map((r) => r[x]));

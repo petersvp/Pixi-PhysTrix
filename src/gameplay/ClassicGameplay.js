@@ -23,7 +23,8 @@ import {
 } from "../config/gameplayConstants.js";
 import {
   CLEAR_PARTICLE_COUNT_PER_MINO,
-  CLEAR_PARTICLE_FORCE,
+  LINE_CLEAR_PARTICLE_HORIZONTAL_FORCE,
+  LINE_CLEAR_PARTICLE_VERTICAL_FORCE,
   PLACEMENT_OUTLINE_PARTICLE_COUNT,
 } from "../config/effectsConstants.js";
 import { COLORS } from "../config/colors.js";
@@ -188,9 +189,10 @@ export class ClassicGameplay extends GameplayContract {
         game.playfield.effects.burst(
           tile.x,
           tile.y,
-          tile.color,
-          CLEAR_PARTICLE_COUNT_PER_MINO,
-          CLEAR_PARTICLE_FORCE,
+        tile.color,
+        CLEAR_PARTICLE_COUNT_PER_MINO,
+        LINE_CLEAR_PARTICLE_HORIZONTAL_FORCE,
+        LINE_CLEAR_PARTICLE_VERTICAL_FORCE,
         ),
       );
       const trashUp =

@@ -183,6 +183,7 @@ export class GameManager {
     this.classicCombo = 0;
     this.playfield.hud.resetCallout();
     this.state = GameState.PLAYING;
+    this.onGameStarted?.({ game: this });
     this.spawn();
     if (this.state === GameState.PLAYING) this.playfield.hud.hideStateMessage();
   }
@@ -196,6 +197,9 @@ export class GameManager {
     this.active.id = this.id++;
     this.irsPending = true;
     this.gameplay.onSpawn(this, this.active);
+    // A presentation/networking consumer may mirror the newly controlled
+    // polyomino without owning gameplay timing or input.
+    this.onPolyominoSpawned?.(this, this.active);
     this.canHold = true;
     this.grounded = false;
     this.lockTimer = 0;
@@ -273,6 +277,7 @@ export class GameManager {
     }
     this.canHold = false;
     this.sound.hold();
+    this.onHoldChanged?.({ hold: this.hold, canHold: this.canHold });
     return true;
   }
   releaseActive() {
@@ -310,6 +315,11 @@ export class GameManager {
       this.active.cells(),
       this.active.color,
     );
+    this.onHardDrop?.({
+      fromCells: hardDropStart,
+      toCells: this.active.cells(),
+      color: this.active.color,
+    });
     this.playfield.hardDropPunch();
     this.lock({ hardDrop: true });
     return true;
@@ -338,10 +348,9 @@ export class GameManager {
     }
     this.state = GameState.GAME_OVER;
     this.gameOverInputRemaining = GAME_OVER_RESTART_INPUT_DELAY_MS;
-    this.playfield.hud.showGameOver(
-      this.score,
-      this.statistics.snapshot(this.elapsedMs),
-    );
+    const summary = this.statistics.snapshot(this.elapsedMs);
+    this.playfield.hud.showGameOver(this.score, summary);
+    this.onGameOver?.({ score: this.score, summary });
     return true;
   }
   restartAfterGameOver() {
@@ -357,6 +366,11 @@ export class GameManager {
     if (this.state !== GameState.PLAYING && this.state !== GameState.PAUSED)
       return;
     this.state = paused ? GameState.PAUSED : GameState.PLAYING;
+    // The pause overlay is owned by the host application, but the state
+    // belongs to this playfield. Keep the local pause marker attached to the
+    // field just as the game-over report is.
+    if (paused) this.playfield.hud.showPaused();
+    else this.playfield.hud.hideStateMessage();
     this.onPauseChange?.(paused);
   }
   detectSpin(piece) {

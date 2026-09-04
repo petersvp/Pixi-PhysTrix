@@ -20,8 +20,11 @@ import {
 } from "../config/gameplayConstants.js";
 import { FrameRuleScanner } from "./FrameRuleScanner.js";
 import { VanishSystem } from "./VanishSystem.js";
-import { pointOccupied as queryPointOccupied } from "./PhysicsQueries.js";
-import { survivingTiles } from "./FractureSystem.js";
+import {
+  fixtureAtPoint,
+  pointOccupied as queryPointOccupied,
+} from "./PhysicsQueries.js";
+import { polyominoCentroid } from "../game/Polyomino.js";
 
 // Balanced preserves the project's existing material. The menu selects the
 // other two dynamic presets; Static never constructs this physics world.
@@ -45,6 +48,7 @@ export class PhysicsWorld {
     const { b2Vec2 } = api.Common.Math;
     this.world = new api.Dynamics.b2World(new b2Vec2(0, 24), true);
     this.bodies = [];
+    this.nextLockedPolyominoId = 1;
     this.scanner = new FrameRuleScanner(this.world, api);
     this.vanish = new VanishSystem(VANISH_DURATION_MS);
     this.setupContactListener();
@@ -224,10 +228,7 @@ export class PhysicsWorld {
       Common: { Math },
     } = this.api;
     const cells = piece.cells();
-    const origin = {
-      x: cells.reduce((sum, cell) => sum + cell.x + 0.5, 0) / cells.length,
-      y: cells.reduce((sum, cell) => sum + cell.y + 0.5, 0) / cells.length,
-    };
+    const origin = polyominoCentroid(cells);
     const signature = cells
       .map((cell) => `${cell.x - origin.x}:${cell.y - origin.y}`)
       .sort()
@@ -275,18 +276,17 @@ export class PhysicsWorld {
       } = this.api,
       cells = piece.cells();
     if (!cells.length) return null;
-    const origin = {
-        x: cells.reduce((n, c) => n + c.x + 0.5, 0) / cells.length,
-        y: cells.reduce((n, c) => n + c.y + 0.5, 0) / cells.length,
-      },
+    const origin = polyominoCentroid(cells),
       def = new Dynamics.b2BodyDef();
     def.type = Dynamics.b2Body.b2_dynamicBody;
     def.position.Set(origin.x, origin.y);
     const body = this.world.CreateBody(def),
       data = {
+        polyominoId: this.nextLockedPolyominoId++,
         color: piece.color,
         cells: cells.map((c) => ({ ...c, marked: false })),
         origin,
+        visualPose: { x: origin.x, y: origin.y, angle: 0 },
       };
     data.cells.forEach((cell) => {
       cell.visualLinks ??= {
@@ -342,6 +342,7 @@ export class PhysicsWorld {
     data.temporaryMassImpactHoldDurationMs = 0;
     body.SetUserData(data);
     this.bodies.push(body);
+    this.onLockedPolyominoCreated?.({ body, data });
     return body;
   }
   spawnTrash(cells) {
@@ -379,20 +380,30 @@ export class PhysicsWorld {
       fixture.friction = this.material.friction;
       fixture.restitution = this.material.restitution;
       body.CreateFixture(fixture).SetUserData(cell);
-      body.SetUserData({
+      const data = {
+        polyominoId: this.nextLockedPolyominoId++,
         color,
         trash: true,
         cells: [cell],
         origin: { x: x + 0.5, y: y + 0.5 },
-      });
+        visualPose: { x: x + 0.5, y: y + 0.5, angle: 0 },
+      };
+      body.SetUserData(data);
       this.bodies.push(body);
+      this.onLockedPolyominoCreated?.({ body, data });
     });
   }
   hasTrash() {
     return this.bodies.some((body) => body.GetUserData()?.trash);
   }
   clearLockedBodies() {
-    this.bodies.forEach((body) => this.world.DestroyBody(body));
+    this.bodies.forEach((body) => {
+      this.onLockedPolyominoDestroyed?.({
+        body,
+        data: body.GetUserData(),
+      });
+      this.world.DestroyBody(body);
+    });
     this.bodies = [];
   }
   scan(now) {
@@ -413,7 +424,7 @@ export class PhysicsWorld {
     const {
       Dynamics,
       Collision: { Shapes },
-      Common: { Math },
+      Common: { Math: Box2DMath },
     } = this.api;
     const contains = (cell, dx, dy) =>
       cells.some((other) => other.x === cell.x + dx && other.y === cell.y + dy);
@@ -444,9 +455,22 @@ export class PhysicsWorld {
         fractured: true,
       };
     });
+    // A fractured body's origin must move to its own centroid.  That gives
+    // source rendering and playback the same local, integer-cell geometry.
+    const fragmentOrigin = polyominoCentroid(fragmentCells);
+    const localOffset = {
+      x: fragmentOrigin.x - origin.x,
+      y: fragmentOrigin.y - origin.y,
+    };
+    const cosine = globalThis.Math.cos(pose.angle);
+    const sine = globalThis.Math.sin(pose.angle);
+    const fragmentPosition = {
+      x: pose.position.x + localOffset.x * cosine - localOffset.y * sine,
+      y: pose.position.y + localOffset.x * sine + localOffset.y * cosine,
+    };
     const def = new Dynamics.b2BodyDef();
     def.type = Dynamics.b2Body.b2_dynamicBody;
-    def.position.Set(pose.position.x, pose.position.y);
+    def.position.Set(fragmentPosition.x, fragmentPosition.y);
     def.angle = pose.angle;
     const body = this.world.CreateBody(def);
     fragmentCells.forEach((cell) => {
@@ -454,7 +478,10 @@ export class PhysicsWorld {
       shape.SetAsOrientedBox(
         0.5,
         0.5,
-        new Math.b2Vec2(cell.x - origin.x + 0.5, cell.y - origin.y + 0.5),
+        new Box2DMath.b2Vec2(
+          cell.x - fragmentOrigin.x + 0.5,
+          cell.y - fragmentOrigin.y + 0.5,
+        ),
         0,
       );
       const fixture = new Dynamics.b2FixtureDef();
@@ -464,23 +491,58 @@ export class PhysicsWorld {
       fixture.restitution = this.material.restitution;
       body.CreateFixture(fixture).SetUserData(cell);
     });
-    body.SetUserData({ color, cells: fragmentCells, origin });
-    body.SetLinearVelocity(new Math.b2Vec2(pose.velocity.x, pose.velocity.y));
+    const data = {
+      polyominoId: this.nextLockedPolyominoId++,
+      color,
+      cells: fragmentCells,
+      origin: fragmentOrigin,
+      visualPose: {
+        x: fragmentPosition.x,
+        y: fragmentPosition.y,
+        angle: pose.angle,
+      },
+    };
+    body.SetUserData(data);
+    // Moving the body's origin to the fragment centroid must preserve the
+    // velocity at that new origin while it is spinning.
+    const worldOffset = {
+      x: fragmentPosition.x - pose.position.x,
+      y: fragmentPosition.y - pose.position.y,
+    };
+    body.SetLinearVelocity(
+      new Box2DMath.b2Vec2(
+        pose.velocity.x - pose.angularVelocity * worldOffset.y,
+        pose.velocity.y + pose.angularVelocity * worldOffset.x,
+      ),
+    );
     body.SetAngularVelocity(pose.angularVelocity);
     this.bodies.push(body);
+    this.onLockedPolyominoCreated?.({ body, data });
+    return body;
   }
-  destroyMarked() {
-    const vanished = [];
-    const vanishedLines = this.vanish.consumeLines();
+  fractureBodies(removedByBody) {
+    const removed = [];
     this.bodies.slice().forEach((body) => {
       const data = body.GetUserData();
-      if (!data.cells.some((tile) => tile.marked)) return;
-      vanished.push(
+      const removedCells = removedByBody.get(body);
+      if (!removedCells?.size) return;
+      removed.push(
         ...data.cells
-          .filter((tile) => tile.marked)
-          .map((tile) => ({ ...tile, color: data.color })),
+          .filter((tile) => removedCells.has(tile))
+          .map((tile) => {
+            // Penetration removal records the live Box2D mino position. Line
+            // clears use their logical grid tile position as before.
+            const worldPosition = removedCells.get?.(tile);
+            return {
+              ...tile,
+              color: data.color,
+              x: worldPosition?.x ?? tile.x,
+              y: worldPosition?.y ?? tile.y,
+              angle: worldPosition?.angle ?? 0,
+            };
+          }),
       );
-      const remaining = survivingTiles(data);
+      const remaining = data.cells.filter((tile) => !removedCells.has(tile));
       const remainingByPosition = new Map(
         remaining.map((tile) => [`${tile.x},${tile.y}`, tile]),
       );
@@ -514,12 +576,54 @@ export class PhysicsWorld {
         velocity: { x: velocity.x, y: velocity.y },
         angularVelocity: body.GetAngularVelocity(),
       };
+      this.onLockedPolyominoDestroyed?.({ body, data });
       this.world.DestroyBody(body);
       this.bodies = this.bodies.filter((candidate) => candidate !== body);
       components.forEach((component) =>
         this.createFragment(component, data.color, data.origin, pose),
       );
     });
+    return removed;
+  }
+  breakPenetratingMinos() {
+    const { Common: { Math } } = this.api;
+    const brokenByBody = new Map();
+    this.bodies.forEach((body) => {
+      if (!body.IsAwake?.()) return;
+      const data = body.GetUserData();
+      data.cells.forEach((cell) => {
+        const centroid = body.GetWorldPoint(
+          new Math.b2Vec2(
+            cell.x - data.origin.x + 0.5,
+            cell.y - data.origin.y + 0.5,
+          ),
+        );
+        const hit = fixtureAtPoint(this.world, centroid, (fixture) => {
+          const otherBody = fixture.GetBody();
+          return otherBody !== body && this.bodies.includes(otherBody);
+        });
+        if (!hit) return;
+        const broken = brokenByBody.get(body) || new Map();
+        // EffectsRenderer uses a mino's top-left grid coordinate and adds its
+        // own half-cell center offset. Preserve the rotated Box2D centroid.
+        broken.set(cell, {
+          x: centroid.x - 0.5,
+          y: centroid.y - 0.5,
+          angle: body.GetAngle(),
+        });
+        brokenByBody.set(body, broken);
+      });
+    });
+    return this.fractureBodies(brokenByBody);
+  }
+  destroyMarked() {
+    const vanishedLines = this.vanish.consumeLines();
+    const markedByBody = new Map(
+      this.bodies
+        .map((body) => [body, new Set(body.GetUserData().cells.filter((tile) => tile.marked))])
+        .filter(([, marked]) => marked.size),
+    );
+    const vanished = this.fractureBodies(markedByBody);
     this.vanish.reset();
     return { vanished, vanishedLines };
   }
@@ -528,13 +632,18 @@ export class PhysicsWorld {
     this.world.Step(Math.min(ms / 1000, 1 / 30), 8, 3);
     this.world.ClearForces();
     const scan = this.scan(now);
+    // Run after Box2D resolves this frame. A locked mino whose exact centroid
+    // lies in another locked fixture is removed through the normal fracture
+    // path, preserving all broken-edge and component segmentation behavior.
+    const broken = this.breakPenetratingMinos();
     const destroyed = this.vanish.due(now)
       ? this.destroyMarked()
       : { vanished: [], vanishedLines: [] };
-    return { ...scan, ...destroyed };
+    return { ...scan, ...destroyed, broken };
   }
   clear() {
     this.destroyControlled();
     this.clearLockedBodies();
+    this.nextLockedPolyominoId = 1;
   }
 }
