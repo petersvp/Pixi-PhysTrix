@@ -62,6 +62,7 @@ export class BoardRenderer {
     this.crispFrame = new PIXI.Graphics();
     this.crispFrame.label = "playfieldCrispFrame";
     this.frameLayer.addChild(this.crispFrame);
+    this.palette = [];
     // The fixed board must not be destroyed merely because an active mino
     // moves. These owned sublayers isolate expensive settled meshes from the
     // short-lived active piece, ghost, and marked-clear overlays.
@@ -84,6 +85,20 @@ export class BoardRenderer {
     // Reuse a shared quad renderer to build connected, stylized mino tiles.
     this.quads = new MinoQuadRenderer(material);
     this.trashQuads = new MinoQuadRenderer(trashMaterial);
+  }
+
+  setPalette(colors = []) {
+    this.palette = colors.map((color) => Number.isFinite(color)
+      ? color
+      : Number.parseInt(String(color).replace("#", ""), 16));
+    this.lastBoardSignature = null;
+    this.lastActiveSignature = null;
+  }
+
+  colorFor(cell, fallback) {
+    return Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
+      ? this.palette[cell.colorIndex] ?? fallback
+      : cell.baseColor ?? fallback;
   }
 
   // The particle is authored in white. Pixi applies the rail color through
@@ -240,7 +255,7 @@ export class BoardRenderer {
       signatureParts.push([
         x,
         y,
-        tile.color,
+        tile.colorIndex,
         tile.trash,
         tile.pieceId,
         tile.marked,
@@ -251,8 +266,10 @@ export class BoardRenderer {
     );
     const boardSignature = JSON.stringify(signatureParts);
     const activeSignature = JSON.stringify({
-      piece: piece ? [piece.type, piece.x, piece.y, piece.rotation] : null,
-      ghost: ghost.map((cell) => [cell.x, cell.y]),
+      piece: piece
+        ? [piece.type, piece.x, piece.y, piece.rotation, piece.minos.map((mino) => mino.colorIndex)]
+        : null,
+      ghost: ghost.map((cell) => [cell.x, cell.y, cell.colorIndex]),
       activeAsGhost,
     });
     const clearLayer = (layer) =>
@@ -336,13 +353,14 @@ export class BoardRenderer {
       const groups = new Map();
       board.forEachCell((tile, x, y) => {
         const group = groups.get(tile.pieceId) || {
-          color: tile.color,
+          color: this.colorFor(tile, tile.baseColor),
           cells: [],
         };
         group.cells.push({
           x,
           y,
-          color: tile.color,
+          colorIndex: tile.colorIndex,
+          color: this.colorFor(tile, tile.baseColor),
           renderY: tile.renderY,
           visualLinks: tile.visualLinks,
           broken: tile.broken,
@@ -365,12 +383,11 @@ export class BoardRenderer {
       // physics minos. The material remains visible under the temporary glow.
       const markedGroups = new Map();
       groups.forEach((group) => {
-        const cells = group.cells.filter((cell) => cell.marked);
-        if (cells.length)
+        group.cells.filter((cell) => cell.marked).forEach((cell) =>
           markedGroups.set(
-            group.color,
-            (markedGroups.get(group.color) || []).concat(cells),
-          );
+            cell.color,
+            (markedGroups.get(cell.color) || []).concat(cell),
+          ));
       });
       markedGroups.forEach((cells, color) => {
         const markedColor = lightenColor(color, 0.45);

@@ -20,6 +20,7 @@ import { chainName, findColorChainCells } from "../game/ChainSystem.js";
 import {
   CLASSIC_VANISH_DURATION_MS,
   CELL,
+  COLS,
 } from "../config/gameplayConstants.js";
 import {
   CLEAR_PARTICLE_COUNT_PER_MINO,
@@ -198,13 +199,20 @@ export class ClassicGameplay extends GameplayContract {
         ? game.board.resolveMarkedCells()
         : game.board.resolveMarkedLines();
       const lines = this.resolve.colorCells.length
-        ? Math.max(1, Math.floor(cleared / Math.max(2, Number(game.session?.roomRules?.chain?.colorLineLength) || Number(game.session?.roomRules?.chain?.clusterSize) || 2)))
+        ? Math.max(
+            1,
+            [...game.board.lastClearedTiles
+              .filter((tile) => tile.x >= 0 && tile.x < COLS)
+              .reduce((rows, tile) => rows.set(tile.y, (rows.get(tile.y) || 0) + 1), new Map())
+              .values()]
+              .filter((count) => count >= COLS).length,
+          )
         : cleared;
       game.board.lastClearedTiles.forEach((tile) =>
         game.playfield.effects.burst(
           tile.x,
           tile.y,
-        tile.color,
+        game.playfield.renderer.colorFor(tile, tile.baseColor),
         CLEAR_PARTICLE_COUNT_PER_MINO,
         LINE_CLEAR_PARTICLE_HORIZONTAL_FORCE,
         LINE_CLEAR_PARTICLE_VERTICAL_FORCE,

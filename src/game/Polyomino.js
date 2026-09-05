@@ -20,14 +20,34 @@ export const polyominoCentroid = (cells) => ({
   y: cells.reduce((sum, cell) => sum + cell.y + 0.5, 0) / cells.length,
 });
 
+export class Mino {
+  constructor({ x, y, colorIndex = -1, ...data }) {
+    this.x = x;
+    this.y = y;
+    this.colorIndex = colorIndex;
+    Object.assign(this, data);
+  }
+  clone() {
+    return new Mino({ ...this });
+  }
+}
+
 export class Polyomino {
   constructor(source = TYPES[(Math.random() * TYPES.length) | 0]) {
     this.definition = resolvePolyominoDefinition(source);
     this.type = this.definition.id;
     this.order = this.definition.order;
     this.color = source.color ?? this.definition.color;
+    this.palette = Array.isArray(source.palette) ? source.palette : null;
     this.matrix = clone(this.definition.matrix);
-    this.cellColors = source.cellColors ? clone(source.cellColors) : null;
+    this.minos = Array.isArray(source.minos)
+      ? source.minos.map((mino) => new Mino(mino))
+      : this.matrix.flatMap((row, y) =>
+          row.flatMap((filled, x) => (filled ? [new Mino({ x, y })] : [])),
+        );
+    this.colorIndex = Number.isInteger(source.colorIndex)
+      ? source.colorIndex
+      : this.minos[0]?.colorIndex ?? -1;
     const matrixWidth = Math.max(...this.matrix.map((row) => row.length));
     this.x = (COLS - matrixWidth) >> 1;
     this.y = -2;
@@ -35,16 +55,22 @@ export class Polyomino {
     this.lastAction = "spawn";
     this.lastKick = 0;
   }
-  cells(matrix = this.matrix, x = this.x, y = this.y, colors = this.cellColors) {
+  cells(matrix = this.matrix, x = this.x, y = this.y, minos = this.minos) {
     const cells = [];
+    const minosAt = new Map(minos.map((mino) => [`${mino.x},${mino.y}`, mino]));
     matrix.forEach((r, py) =>
       r.forEach((v, px) =>
-        v &&
-        cells.push({
-          x: x + px,
-          y: y + py,
-          color: colors?.[py]?.[px],
-        }),
+        v && (() => {
+          const mino = minosAt.get(`${px},${py}`);
+          if (!mino)
+            throw new Error(`Polyomino ${this.type} is missing mino ${px},${py}.`);
+          cells.push({
+            ...mino,
+            x: x + px,
+            y: y + py,
+            color: mino.colorIndex < 0 ? this.color : this.palette?.[mino.colorIndex],
+          });
+        })(),
       ),
     );
     return cells;
@@ -66,6 +92,15 @@ export class Polyomino {
   static rotateMatrix(m, cw = true) {
     const t = m[0].map((_, x) => m.map((r) => r[x]));
     return cw ? t.map((r) => r.reverse()) : t.reverse();
+  }
+  static rotateMinos(minos, matrix, cw = true) {
+    const height = matrix.length;
+    const width = Math.max(...matrix.map((row) => row.length));
+    return minos.map((mino) => new Mino({
+      ...mino,
+      x: cw ? height - 1 - mino.y : mino.y,
+      y: cw ? mino.x : width - 1 - mino.x,
+    }));
   }
   // Higher orders rotate around their bounding-box centre rather than their
   // mino centre of mass. This keeps asymmetric 3x3 shapes, especially L-like
@@ -107,14 +142,13 @@ export class Polyomino {
     return true;
   }
   rotate(board, d = 1) {
-    if (this.type === "O") return true;
     if (Math.abs(d) === 2) {
       const s = {
         matrix: this.matrix,
         x: this.x,
         y: this.y,
         facing: this.facing,
-        cellColors: this.cellColors,
+        minos: this.minos.map((mino) => mino.clone()),
       };
       if (this.rotate(board, 1) && this.rotate(board, 1)) return true;
       Object.assign(this, s);
@@ -122,9 +156,7 @@ export class Polyomino {
     }
     const to = (this.facing + (d > 0 ? 1 : 3)) % 4,
       next = Polyomino.rotateMatrix(this.matrix, d > 0),
-      nextColors = this.cellColors
-        ? Polyomino.rotateMatrix(this.cellColors, d > 0)
-        : null,
+      nextMinos = Polyomino.rotateMinos(this.minos, this.matrix, d > 0),
       kicks = rotationKicksFor(this.definition, this.facing, to);
     const anchor =
       this.order === 4
@@ -132,10 +164,10 @@ export class Polyomino {
         : Polyomino.boundingBoxAnchor(this.matrix, next, this.x, this.y);
     for (let i = 0; i < kicks.length; i++) {
       const [dx, dy] = kicks[i],
-        cells = this.cells(next, anchor.x + dx, anchor.y + dy, nextColors);
+        cells = this.cells(next, anchor.x + dx, anchor.y + dy, nextMinos);
       if (board.isValid(cells)) {
         this.matrix = next;
-        this.cellColors = nextColors;
+        this.minos = nextMinos;
         this.x = anchor.x + dx;
         this.y = anchor.y + dy;
         this.facing = to;

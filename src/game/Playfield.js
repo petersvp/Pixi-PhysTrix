@@ -125,6 +125,11 @@ export class Playfield {
     this.punch = { scale: 0, y: 0, rotation: 0, life: 0 };
   }
 
+  setPalette(colors = []) {
+    this.renderer.setPalette(colors);
+    this.physicsRenderer?.setPalette(colors);
+  }
+
   createPhysicsWorld(api, preset, config) {
     this.physics = new PhysicsWorld(api, preset, config);
     this.physicsLayer = new PIXI.Container();
@@ -138,6 +143,7 @@ export class Playfield {
       this.material,
       this.trashMaterial,
     );
+    this.physicsRenderer.setPalette(this.renderer.palette);
     return this.physics;
   }
 

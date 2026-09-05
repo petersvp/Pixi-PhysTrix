@@ -216,7 +216,7 @@ export class PhysicsGameplay extends GameplayContract {
         game.playfield.effects.burst(
           tile.x,
           tile.y,
-          tile.color,
+          game.playfield.physicsRenderer.colorFor(tile, tile.baseColor),
           CLEAR_PARTICLE_COUNT_PER_MINO * 3,
           MINO_BREAK_PARTICLE_HORIZONTAL_FORCE,
           MINO_BREAK_PARTICLE_VERTICAL_FORCE,
@@ -230,7 +230,10 @@ export class PhysicsGameplay extends GameplayContract {
         result.broken.reduce((sum, tile) => sum + tile.x, 0) /
         result.broken.length;
       game.playfield.hud.showScoringCallout(`+${breakPoints}`, {
-        color: result.broken[0].color,
+        color: game.playfield.physicsRenderer.colorFor(
+          result.broken[0],
+          result.broken[0].baseColor,
+        ),
         x:
           game.playfield.layout.x +
           (averageColumn + 0.5) * CELL * game.playfield.layout.scale,
@@ -249,7 +252,7 @@ export class PhysicsGameplay extends GameplayContract {
       game.playfield.effects.burst(
         tile.x,
         tile.y,
-        tile.color,
+        game.playfield.physicsRenderer.colorFor(tile, tile.baseColor),
         CLEAR_PARTICLE_COUNT_PER_MINO,
         LINE_CLEAR_PARTICLE_HORIZONTAL_FORCE,
         LINE_CLEAR_PARTICLE_VERTICAL_FORCE,

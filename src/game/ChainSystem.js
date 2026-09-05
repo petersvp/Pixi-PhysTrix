@@ -45,9 +45,9 @@ export function findColorChainCells(board, rules = {}) {
     board.forEachCell((tile, x, y) => {
       directions.forEach(([dx, dy]) => {
         const previous = board.get(x - dx, y - dy);
-        if (previous?.color === tile.color) return;
+        if (!Number.isInteger(tile.colorIndex) || tile.colorIndex < 0 || previous?.colorIndex === tile.colorIndex) return;
         const run = [];
-        for (let px = x, py = y; board.get(px, py)?.color === tile.color; px += dx, py += dy)
+        for (let px = x, py = y; board.get(px, py)?.colorIndex === tile.colorIndex; px += dx, py += dy)
           run.push({ x: px, y: py });
         if (run.length >= minimum)
           run.forEach((cell) => result.set(`${cell.x},${cell.y}`, cell));
@@ -60,6 +60,7 @@ export function findColorChainCells(board, rules = {}) {
   const visited = new Set();
   const result = [];
   board.forEachCell((tile, x, y) => {
+    if (!Number.isInteger(tile.colorIndex) || tile.colorIndex < 0) return;
     const key = `${x},${y}`;
     if (visited.has(key)) return;
     visited.add(key);
@@ -69,7 +70,7 @@ export function findColorChainCells(board, rules = {}) {
       [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
         const nx = cell.x + dx, ny = cell.y + dy, nextKey = `${nx},${ny}`;
         const next = board.get(nx, ny);
-        if (!next || next.color !== tile.color || visited.has(nextKey)) return;
+        if (!next || next.colorIndex !== tile.colorIndex || visited.has(nextKey)) return;
         visited.add(nextKey);
         group.push({ x: nx, y: ny });
       });

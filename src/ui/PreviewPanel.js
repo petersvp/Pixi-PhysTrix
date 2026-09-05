@@ -29,12 +29,23 @@ export class PreviewPanel {
       const slot = slots[index];
       if (!slot) return;
       const definition = resolvePolyominoDefinition(source);
-      const cells = [];
-      definition.matrix.forEach((row, y) =>
-        row.forEach((filled, x) => {
-          if (filled) cells.push({ x, y });
-        }),
-      );
+      const palette = Array.isArray(source.palette)
+        ? source.palette.map((color) => Number.isFinite(color)
+          ? color
+          : Number.parseInt(String(color).replace("#", ""), 16))
+        : [];
+      // A queued item is already a complete set of minos. Reconstructing it
+      // from its matrix silently loses Color Per Mino assignments.
+      const cells = Array.isArray(source.minos)
+        ? source.minos.map((mino) => ({
+            ...mino,
+            color: mino.colorIndex < 0
+              ? source.color ?? definition.color
+              : palette[mino.colorIndex] ?? source.color ?? definition.color,
+          }))
+        : definition.matrix.flatMap((row, y) =>
+            row.flatMap((filled, x) => (filled ? [{ x, y, colorIndex: -1 }] : [])),
+          );
       const minX = Math.min(...cells.map((cell) => cell.x));
       const maxX = Math.max(...cells.map((cell) => cell.x));
       const minY = Math.min(...cells.map((cell) => cell.y));
@@ -58,7 +69,7 @@ export class PreviewPanel {
           ((minY + maxY + 1) * CELL * previewScale) / 2,
       );
       const occupied = new Set(cells.map((cell) => `${cell.x},${cell.y}`));
-      this.quads.draw(node, cells, definition.color, (cell) => ({
+      this.quads.draw(node, cells, source.color ?? definition.color, (cell) => ({
         top: occupied.has(`${cell.x},${cell.y - 1}`),
         right: occupied.has(`${cell.x + 1},${cell.y}`),
         bottom: occupied.has(`${cell.x},${cell.y + 1}`),

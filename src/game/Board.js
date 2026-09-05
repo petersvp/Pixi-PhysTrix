@@ -25,6 +25,9 @@ export class Board {
     return (y < 0 ? this.above.get(y) : this.cells[y])?.[x] || null;
   }
   set(x, y, tile) {
+    // `-1` is deliberate: ordinary skin-coloured minos are not part of a
+    // colour-chain palette. Never let old callers create an unindexed tile.
+    if (!Number.isInteger(tile?.colorIndex)) tile.colorIndex = -1;
     if (y >= 0) this.cells[y][x] = tile;
     else {
       const row = this.above.get(y) || Array(COLS).fill(null);
@@ -78,24 +81,33 @@ export class Board {
     }
     const occupied = new Set(cells.map(({ x, y }) => `${x},${y}`));
     const has = (x, y) => occupied.has(`${x},${y}`);
-    cells.forEach(({ x, y }) => {
+    cells.forEach((cell) => {
+      const { x, y } = cell;
       if (y < ROWS)
         this.set(x, y, {
-          color: cell.color ?? piece.color,
+          colorIndex: Number.isInteger(cell.colorIndex) ? cell.colorIndex : -1,
+          baseColor: cell.baseColor ?? piece.color,
           pieceId: piece.id,
-          // These source links are immutable. Rendering must not infer new
-          // connectivity merely because a line clear moves the cells around.
-          visualLinks: {
-            top: has(x, y - 1),
-            right: has(x + 1, y),
-            bottom: has(x, y + 1),
-            left: has(x - 1, y),
-            topLeft: has(x - 1, y - 1),
-            topRight: has(x + 1, y - 1),
-            bottomRight: has(x + 1, y + 1),
-            bottomLeft: has(x - 1, y + 1),
+          // Custom/broken polyomino topology is part of the mino data. Only
+          // ordinary generated pieces need inferred links at their first lock.
+          visualLinks: cell.visualLinks
+            ? { ...cell.visualLinks }
+            : {
+                top: has(x, y - 1),
+                right: has(x + 1, y),
+                bottom: has(x, y + 1),
+                left: has(x - 1, y),
+                topLeft: has(x - 1, y - 1),
+                topRight: has(x + 1, y - 1),
+                bottomRight: has(x + 1, y + 1),
+                bottomLeft: has(x - 1, y + 1),
+              },
+          broken: {
+            top: Boolean(cell.broken?.top),
+            right: Boolean(cell.broken?.right),
+            bottom: Boolean(cell.broken?.bottom),
+            left: Boolean(cell.broken?.left),
           },
-          broken: { top: false, right: false, bottom: false, left: false },
         });
     });
     return false;

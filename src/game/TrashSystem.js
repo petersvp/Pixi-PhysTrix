@@ -26,6 +26,10 @@ const hash = (x, y, seed) => {
 
 const interpolate = (from, to, amount) => from + (to - from) * amount;
 const smooth = (value) => value * value * (3 - 2 * value);
+const colorNumber = (color) =>
+  Number.isFinite(color)
+    ? color
+    : Number.parseInt(String(color).replace("#", ""), 16) || TRASH_MINO_COLOR;
 
 // Interpolate neighbouring deterministic values rather than quantizing x/y
 // before hashing. The previous floor(x / 2), floor(y / 2) form made literal
@@ -57,7 +61,9 @@ export class TrashSystem {
     this.random = random;
     this.level = Math.max(0, Math.min(MAX_TRASH_LEVEL, Number(level) || 0));
     this.rules = roomRules?.mutators || {};
-    this.colors = roomRules?.chain?.colors || [];
+    // Settings use HTML colour strings. Gameplay stores only a palette index
+    // on every mino; this resolved palette exists solely at the render edge.
+    this.colors = (roomRules?.chain?.colors || []).map(colorNumber);
     this.colorMode = ["color-lines", "color-clusters"].includes(roomRules?.chain?.mode);
   }
 
@@ -85,18 +91,34 @@ export class TrashSystem {
         if (mode === "perlin"
           ? organicNoise(x, y, level) < density
           : this.random() < density)
-          row.push({ x, y, trash: true, color: TRASH_MINO_COLOR });
+          {
+            const colorIndex = this.colorMode && this.colors.length
+              ? Math.floor(this.random() * this.colors.length)
+              : -1;
+            row.push({
+              x,
+              y,
+              trash: true,
+              colorIndex,
+              baseColor: TRASH_MINO_COLOR,
+            });
+          }
       if (row.length === COLS)
         row.splice(Math.floor(this.random() * COLS), 1);
       cells.push(...row);
     }
-    if (!cells.length && level > 0)
+    if (!cells.length && level > 0) {
+      const colorIndex = this.colorMode && this.colors.length
+        ? Math.floor(this.random() * this.colors.length)
+        : -1;
       cells.push({
         x: Math.floor(this.random() * COLS),
         y: ROWS - 1,
         trash: true,
-        color: TRASH_MINO_COLOR,
+        colorIndex,
+        baseColor: TRASH_MINO_COLOR,
       });
+    }
     return cells;
   }
 
@@ -136,7 +158,16 @@ export class TrashSystem {
         const token = row[sourceX] || "0";
         if (token === "0") continue;
         const index = Math.max(0, Number(token) - 1);
-        occupied.push({ x, y: ROWS - 1 - rowFromBottom, trash: true, color: this.colorMode ? this.colors[index % this.colors.length] || TRASH_MINO_COLOR : TRASH_MINO_COLOR });
+        const colorIndex = this.colorMode && this.colors.length
+          ? index % this.colors.length
+          : -1;
+        occupied.push({
+          x,
+          y: ROWS - 1 - rowFromBottom,
+          trash: true,
+          colorIndex,
+          baseColor: TRASH_MINO_COLOR,
+        });
       }
       // A fully filled authored row would create an unavoidable immediate
       // clear. Preserve the level pattern but punch one random fallback hole.
@@ -147,9 +178,10 @@ export class TrashSystem {
   }
 
   populateBoard(board) {
-    this.cells().forEach(({ x, y, color }) =>
+    this.cells().forEach(({ x, y, colorIndex, baseColor }) =>
       board.set(x, y, {
-        color,
+        colorIndex,
+        baseColor,
         trash: true,
         pieceId: `trash-${x}-${y}-${this.level}`,
         visualLinks: emptyLinks(),

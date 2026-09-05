@@ -40,7 +40,8 @@ export class FrameRuleScanner {
         const center = body.GetWorldPoint(fixture.GetShape().m_centroid);
         const x = Math.floor(center.x), y = Math.floor(center.y);
         if (x < 0 || x >= COLS || y < 0 || y >= ROWS) continue;
-        cells.set(`${x},${y}`, { x, y, tile, color: tile.color });
+        if (!Number.isInteger(tile.colorIndex) || tile.colorIndex < 0) continue;
+        cells.set(`${x},${y}`, { x, y, tile, colorIndex: tile.colorIndex });
       }
     }
     const groups = [];
@@ -53,9 +54,9 @@ export class FrameRuleScanner {
       ];
       const matched = new Map();
       cells.forEach((cell) => directions.forEach(([dx, dy]) => {
-        if (cells.get(`${cell.x - dx},${cell.y - dy}`)?.color === cell.color) return;
+        if (cells.get(`${cell.x - dx},${cell.y - dy}`)?.colorIndex === cell.colorIndex) return;
         const run = [];
-        for (let x = cell.x, y = cell.y; cells.get(`${x},${y}`)?.color === cell.color; x += dx, y += dy)
+        for (let x = cell.x, y = cell.y; cells.get(`${x},${y}`)?.colorIndex === cell.colorIndex; x += dx, y += dy)
           run.push(cells.get(`${x},${y}`));
         if (run.length >= minimum) run.forEach((item) => matched.set(item.tile, item.tile));
       }));
@@ -73,7 +74,7 @@ export class FrameRuleScanner {
           [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
             const nextKey = `${current.x + dx},${current.y + dy}`;
             const next = cells.get(nextKey);
-            if (!next || next.color !== cell.color || visited.has(nextKey)) return;
+            if (!next || next.colorIndex !== cell.colorIndex || visited.has(nextKey)) return;
             visited.add(nextKey);
             group.push(next);
           });

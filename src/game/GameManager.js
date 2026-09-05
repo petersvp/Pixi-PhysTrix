@@ -107,6 +107,7 @@ export class GameManager {
       skinBaseUrl: this.session?.skinBaseUrl,
     });
     this.playfield.loadSkin(this.session?.skin);
+    this.playfield.setPalette(this.session?.roomRules?.chain?.colors || []);
     this.playfield.setHoldAction(() => this.holdPiece());
     this.playfield.setRestartAction(() => this.restartAfterGameOver());
     this.trash = new TrashSystem(this.session?.trash, Math.random, this.session?.roomRules);
@@ -280,7 +281,9 @@ export class GameManager {
     const outgoing = {
       ...this.active.definition,
       color: this.active.color,
-      cellColors: this.active.cellColors,
+      colorIndex: this.active.colorIndex,
+      palette: this.active.palette,
+      minos: this.active.minos.map((mino) => ({ ...mino })),
     };
     if (this.hold) {
       const incoming = this.hold;
@@ -345,7 +348,7 @@ export class GameManager {
     this.onHardDrop?.({
       fromCells: hardDropStart,
       toCells: this.active.cells(),
-      color: this.active.color,
+      colorIndex: this.active.colorIndex,
     });
     this.playfield.hardDropPunch();
     this.lock({ hardDrop: true });

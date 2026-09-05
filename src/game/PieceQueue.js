@@ -11,7 +11,9 @@ import { bagGeneratorForPreset, roomBagGenerator } from "../config/bags.js";
 const DEFAULT_QUEUE_SIZE = 5;
 const MAX_QUEUE_SIZE = 6;
 const colorNumber = (color) =>
-  Number.parseInt(String(color).replace("#", ""), 16) || 0xffffff;
+  Number.isFinite(color)
+    ? color
+    : Number.parseInt(String(color).replace("#", ""), 16) || 0xffffff;
 
 const shuffle = (items, random) => {
   const result = [...items];
@@ -85,14 +87,24 @@ export class PieceQueue {
       .slice(0, Math.max(1, Number(chain.colorCount) || 1))
       .map(colorNumber);
     if (!palette.length) return definition;
-    const pick = () => palette[Math.floor(this.random() * palette.length)];
-    const color = pick();
+    const pickIndex = () => Math.floor(this.random() * palette.length);
+    const colorIndex = pickIndex();
     return {
       ...definition,
-      color,
-      cellColors: chain.colorPerMino
-        ? definition.matrix.map((row) => row.map((filled) => (filled ? pick() : null)))
-        : null,
+      colorIndex,
+      palette,
+      minos: Array.isArray(definition.minos)
+        ? definition.minos.map((mino) => ({
+            ...mino,
+            colorIndex: chain.colorPerMino ? pickIndex() : colorIndex,
+          }))
+        : definition.matrix.flatMap((row, y) =>
+            row.flatMap((filled, x) =>
+              filled
+                ? [{ x, y, colorIndex: chain.colorPerMino ? pickIndex() : colorIndex }]
+                : [],
+            ),
+          ),
     };
   }
 }

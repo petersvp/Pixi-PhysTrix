@@ -327,7 +327,11 @@ export class PhysicsWorld {
         polyominoId: this.nextLockedPolyominoId++,
         color: piece.color,
         material: this.materials[piece.definition.materialIndex] || this.material,
-        cells: cells.map((c) => ({ ...c, marked: false })),
+        cells: cells.map(({ color: _color, ...cell }) => ({
+          ...cell,
+          baseColor: cell.baseColor ?? piece.color,
+          marked: false,
+        })),
         origin,
         visualPose: { x: origin.x, y: origin.y, angle: 0 },
       };
@@ -394,7 +398,7 @@ export class PhysicsWorld {
       Collision: { Shapes },
       Common: { Math },
     } = this.api;
-    cells.forEach(({ x, y, color, trash }) => {
+    cells.forEach(({ x, y, colorIndex = -1, baseColor, trash }) => {
       const def = new Dynamics.b2BodyDef();
       def.type = Dynamics.b2Body.b2_staticBody;
       def.position.Set(x + 0.5, y + 0.5);
@@ -402,6 +406,7 @@ export class PhysicsWorld {
       const cell = {
         x,
         y,
+        colorIndex,
         trash: Boolean(trash),
         marked: false,
         visualLinks: {
@@ -425,7 +430,7 @@ export class PhysicsWorld {
       body.CreateFixture(fixture).SetUserData(cell);
       const data = {
         polyominoId: this.nextLockedPolyominoId++,
-        color,
+        color: baseColor,
         trash: true,
         cells: [cell],
         origin: { x: x + 0.5, y: y + 0.5 },
@@ -579,7 +584,7 @@ export class PhysicsWorld {
             const worldPosition = removedCells.get?.(tile);
             return {
               ...tile,
-              color: data.color,
+              baseColor: tile.baseColor ?? data.color,
               x: worldPosition?.x ?? tile.x,
               y: worldPosition?.y ?? tile.y,
               angle: worldPosition?.angle ?? 0,

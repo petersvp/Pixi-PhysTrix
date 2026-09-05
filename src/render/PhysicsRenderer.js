@@ -40,7 +40,21 @@ export class PhysicsRenderer {
     this.bodyNodes = new Map();
     this.bodyData = new Map();
     this.markedNodes = new Map();
+    this.palette = [];
     this.layer.addChild(this.bodyLayer, this.markedLayer);
+  }
+
+  setPalette(colors = []) {
+    this.palette = colors.map((color) => Number.isFinite(color)
+      ? color
+      : Number.parseInt(String(color).replace("#", ""), 16));
+    this.invalidateMaterial();
+  }
+
+  colorFor(cell, fallback) {
+    return Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
+      ? this.palette[cell.colorIndex] ?? fallback
+      : cell.baseColor ?? fallback;
   }
 
   render(field) {
@@ -62,7 +76,7 @@ export class PhysicsRenderer {
         const centroid = polyominoCentroid(data.cells);
         (data.trash ? this.trashQuads : this.quads).draw(
           node,
-          data.cells,
+          data.cells.map((cell) => ({ ...cell, color: this.colorFor(cell, data.color) })),
           data.color,
           (cell) => this.linksForCell(data, cell),
           1,
@@ -148,7 +162,7 @@ export class PhysicsRenderer {
         cell.x,
         cell.y,
         cell.marked,
-        cell.color,
+        cell.colorIndex,
         cell.broken,
         cell.visualLinks,
       ]),
@@ -165,8 +179,11 @@ export class PhysicsRenderer {
       }
       return;
     }
-    const markedColor = lightenColor(data.color, MARKED_MINO_OUTLINE_LIGHTNESS);
-    const markedSignature = `${bodySignature}:${markedColor}`;
+    const markedColor = lightenColor(
+      this.colorFor(markedCells[0], data.color),
+      MARKED_MINO_OUTLINE_LIGHTNESS,
+    );
+    const markedSignature = `${bodySignature}:${markedCells.map((cell) => this.colorFor(cell, data.color)).join(",")}`;
     if (!markedNode) {
       markedNode = new PIXI.Container();
       markedNode.label = "markedMinoOverlay";
@@ -189,10 +206,14 @@ export class PhysicsRenderer {
       markedCells.forEach((cell) => {
         const x = cell.x - centroid.x;
         const y = cell.y - centroid.y;
+        const cellColor = lightenColor(
+          this.colorFor(cell, data.color),
+          MARKED_MINO_OUTLINE_LIGHTNESS,
+        );
         markedNode.addChild(
           new PIXI.Graphics()
             .roundRect(x + 0.06, y + 0.06, 0.88, 0.88, 0.14)
-            .stroke({ width: 0.08, color: markedColor, alpha: 1 }),
+            .stroke({ width: 0.08, color: cellColor, alpha: 1 }),
         );
       });
       markedNode.visualSignature = markedSignature;
