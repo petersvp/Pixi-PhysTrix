@@ -13,11 +13,13 @@ import {
 } from "../config/gameplayConstants.js";
 
 export class Board {
-  constructor() {
+  constructor(cols = COLS, rows = ROWS) {
+    this.cols = Math.max(4, Math.floor(Number(cols) || COLS));
+    this.rows = Math.max(4, Math.floor(Number(rows) || ROWS));
     this.reset();
   }
   reset() {
-    this.cells = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    this.cells = Array.from({ length: this.rows }, () => Array(this.cols).fill(null));
     this.above = new Map();
     this.lastClearedTiles = [];
   }
@@ -30,7 +32,7 @@ export class Board {
     if (!Number.isInteger(tile?.colorIndex)) tile.colorIndex = -1;
     if (y >= 0) this.cells[y][x] = tile;
     else {
-      const row = this.above.get(y) || Array(COLS).fill(null);
+      const row = this.above.get(y) || Array(this.cols).fill(null);
       row[x] = tile;
       this.above.set(y, row);
     }
@@ -54,7 +56,7 @@ export class Board {
   }
   isValid(cells) {
     return cells.every(
-      ({ x, y }) => x >= 0 && x < COLS && y < ROWS && !this.get(x, y),
+      ({ x, y }) => x >= 0 && x < this.cols && y < this.rows && !this.get(x, y),
     );
   }
   raycastClear(_from, to) {
@@ -70,12 +72,18 @@ export class Board {
     const bClaims = Boolean(b.visualLinks?.[opposite]);
     return (aClaims && bClaims) || aClaims !== bClaims;
   }
+  static gravityType(value = CLASSIC_STICKY_GRAVITY) {
+    if (value === "classic") return "classic";
+    if (value === "clustered") return "clustered";
+    // Keep the old boolean Board API valid for standalone callers.
+    return value ? "clustered" : "classic";
+  }
   lock(piece) {
     const cells = piece.cells();
-    if (cells.length > ROWS * COLS) {
+    if (cells.length > this.rows * this.cols) {
       console.error("[Board] Refusing oversized locked polyomino.", {
         cells: cells.length,
-        maximum: ROWS * COLS,
+        maximum: this.rows * this.cols,
       });
       return false;
     }
@@ -83,7 +91,7 @@ export class Board {
     const has = (x, y) => occupied.has(`${x},${y}`);
     cells.forEach((cell) => {
       const { x, y } = cell;
-      if (y < ROWS)
+      if (y < this.rows)
         this.set(x, y, {
           colorIndex: Number.isInteger(cell.colorIndex) ? cell.colorIndex : -1,
           baseColor: cell.baseColor ?? piece.color,
@@ -132,63 +140,81 @@ export class Board {
     });
     return cells;
   }
-  resolveMarkedCells() {
-    const clearedTiles = [];
-    const survivors = [];
-    this.forEachCell((tile, x, y) => {
-      const entry = { tile, x, y };
-      if (tile.marked) clearedTiles.push({ ...tile, x, y });
-      else survivors.push(entry);
-    });
-    this.reset();
-    this.lastClearedTiles = clearedTiles;
-    if (!clearedTiles.length) return 0;
-    this.applyStickyGravity(survivors, true);
-    return clearedTiles.length;
-  }
-  clearLines(stickyGravity = CLASSIC_STICKY_GRAVITY) {
-    return this.clearRows(this.findFullLines(), stickyGravity, false);
-  }
-  resolveMarkedLines(stickyGravity = CLASSIC_STICKY_GRAVITY) {
-    const rows = this.cells
-      .map((row, y) => (row.every((tile) => tile?.marked) ? y : -1))
-      .filter((y) => y >= 0);
-    return this.clearRows(rows, stickyGravity, true);
-  }
-  clearRows(rows, stickyGravity, animateFall) {
-    const clearedTiles = rows.flatMap((y) =>
-      this.cells[y].map((tile, x) => tile && { ...tile, x, y }).filter(Boolean),
+  // A cleared mino exposes the face of every surviving mino from the same
+  // locked polyomino.  Keep this separate from gravity: once the board has
+  // been rebuilt, the removed mino no longer exists to tell us which edge was
+  // torn.  `pieceId` is deliberately included alongside visual links because
+  // imported/repaired minos can legitimately have incomplete link metadata.
+  markTornEdges(removedEntries) {
+    if (!removedEntries.length) return;
+    const removed = new Map(
+      removedEntries.map((entry) => [`${entry.x},${entry.y}`, entry]),
     );
-    this.lastClearedTiles = clearedTiles;
-    if (!rows.length) return 0;
-    const removed = new Set(rows);
     const sides = [
       [0, -1, "top", "bottom"],
       [1, 0, "right", "left"],
       [0, 1, "bottom", "top"],
       [-1, 0, "left", "right"],
     ];
-    rows.forEach((rowY) =>
-      this.cells[rowY].forEach((tile, x) => {
-        if (!tile) return;
-        sides.forEach(([dx, dy, side, opposite]) => {
-          const neighborY = rowY + dy;
-          const neighbor = this.get(x + dx, neighborY);
-          if (removed.has(neighborY)) return;
-          if (Board.areConnected(tile, neighbor, side, opposite))
-            neighbor.broken[opposite] = true;
-        });
-      }),
+    removedEntries.forEach(({ tile, x, y }) => {
+      sides.forEach(([dx, dy, side, opposite]) => {
+        const neighborX = x + dx;
+        const neighborY = y + dy;
+        if (removed.has(`${neighborX},${neighborY}`)) return;
+        const neighbor = this.get(neighborX, neighborY);
+        if (!neighbor) return;
+        const samePolyomino =
+          tile.pieceId !== undefined && tile.pieceId === neighbor.pieceId;
+        if (!samePolyomino && !Board.areConnected(tile, neighbor, side, opposite))
+          return;
+        neighbor.broken ??= { top: false, right: false, bottom: false, left: false };
+        neighbor.broken[opposite] = true;
+      });
+    });
+  }
+  resolveMarkedCells(gravity = CLASSIC_STICKY_GRAVITY) {
+    const removedEntries = [];
+    const survivors = [];
+    this.forEachCell((tile, x, y) => {
+      const entry = { tile, x, y };
+      if (tile.marked) removedEntries.push(entry);
+      else survivors.push(entry);
+    });
+    const clearedTiles = removedEntries.map(({ tile, x, y }) => ({ ...tile, x, y }));
+    this.markTornEdges(removedEntries);
+    this.reset();
+    this.lastClearedTiles = clearedTiles;
+    if (!clearedTiles.length) return 0;
+    if (Board.gravityType(gravity) === "classic")
+      this.applyClassicCellGravity(survivors, removedEntries, true);
+    else this.applyStickyGravity(survivors, true);
+    return clearedTiles.length;
+  }
+  clearLines(stickyGravity = CLASSIC_STICKY_GRAVITY) {
+    return this.clearRows(this.findFullLines(), stickyGravity, false);
+  }
+  resolveMarkedLines(gravity = CLASSIC_STICKY_GRAVITY) {
+    const rows = this.cells
+      .map((row, y) => (row.every((tile) => tile?.marked) ? y : -1))
+      .filter((y) => y >= 0);
+    return this.clearRows(rows, gravity, true);
+  }
+  clearRows(rows, gravity, animateFall) {
+    const removedEntries = rows.flatMap((y) =>
+      this.cells[y].map((tile, x) => tile && { tile, x, y }).filter(Boolean),
     );
+    const clearedTiles = removedEntries.map(({ tile, x, y }) => ({ ...tile, x, y }));
+    this.lastClearedTiles = clearedTiles;
+    if (!rows.length) return 0;
+    const removed = new Set(rows);
+    this.markTornEdges(removedEntries);
     const survivors = [];
     this.forEachCell((tile, x, y) => {
       if (!removed.has(y)) survivors.push({ tile, x, y });
     });
     this.reset();
     this.lastClearedTiles = clearedTiles;
-    // Even when ordinary row compaction is configured, a Trash board needs
-    // graph gravity so its static cells can remain in place as true blockers.
-    if (stickyGravity || survivors.some(({ tile }) => tile.trash)) {
+    if (Board.gravityType(gravity) === "clustered") {
       this.applyStickyGravity(survivors, animateFall);
       return rows.length;
     }
@@ -201,6 +227,59 @@ export class Board {
       this.set(x, finalY, tile);
     });
     return rows.length;
+  }
+  // Classic gravity resolves a cell clear independently in every column.
+  // Unlike clustered gravity, a bridge cannot hold a fragment over a hole:
+  // every cell above that hole drops exactly with its own column.  Connections
+  // whose endpoints acquire different destinations are torn on both faces.
+  applyClassicCellGravity(survivors, removedEntries, animateFall = false) {
+    const original = new Map(
+      survivors.map((entry) => [`${entry.x},${entry.y}`, entry]),
+    );
+    const removedByColumn = new Map();
+    removedEntries.forEach(({ x, y }) => {
+      const rows = removedByColumn.get(x) || [];
+      rows.push(y);
+      removedByColumn.set(x, rows);
+    });
+    const destinations = new Map();
+    survivors.forEach((entry) => {
+      const fall = (removedByColumn.get(entry.x) || []).filter(
+        (removedY) => removedY > entry.y,
+      ).length;
+      destinations.set(entry, { x: entry.x, y: entry.y + fall });
+    });
+    const sides = [
+      [0, -1, "top", "bottom"],
+      [1, 0, "right", "left"],
+      [0, 1, "bottom", "top"],
+      [-1, 0, "left", "right"],
+    ];
+    survivors.forEach((entry) => {
+      const destination = destinations.get(entry);
+      sides.forEach(([dx, dy, side, opposite]) => {
+        const neighbor = original.get(`${entry.x + dx},${entry.y + dy}`);
+        if (!neighbor || !Board.areConnected(entry.tile, neighbor.tile, side, opposite))
+          return;
+        const neighborDestination = destinations.get(neighbor);
+        if (
+          neighborDestination.x === destination.x + dx &&
+          neighborDestination.y === destination.y + dy
+        )
+          return;
+        entry.tile.broken ??= { top: false, right: false, bottom: false, left: false };
+        neighbor.tile.broken ??= { top: false, right: false, bottom: false, left: false };
+        entry.tile.broken[side] = true;
+        neighbor.tile.broken[opposite] = true;
+      });
+    });
+    survivors.forEach((entry) => {
+      const destination = destinations.get(entry);
+      if (animateFall && entry.y !== destination.y) entry.tile.renderY = entry.y;
+      else delete entry.tile.renderY;
+      delete entry.tile.marked;
+      this.set(destination.x, destination.y, entry.tile);
+    });
   }
   // First discover the complete connectivity graph from top to bottom. Then
   // settle the discovered groups from bottom to top against an occupancy map
@@ -224,7 +303,7 @@ export class Board {
       [-1, 0, "left", "right"],
     ];
     const topFirst = [...cells.values()].sort((a, b) => a.y - b.y || a.x - b.x);
-    const maxResolveCells = ROWS * COLS;
+    const maxResolveCells = this.rows * this.cols;
     let visitedCells = 0;
     topFirst.forEach((first) => {
       const firstKey = `${first.x},${first.y}`;
@@ -356,7 +435,7 @@ export class Board {
     // then descend together instead of falsely supporting one another midair.
     let movedInSweep = true;
     let sweepCount = 0;
-    const maxSweepCount = ROWS * COLS + 1;
+    const maxSweepCount = this.rows * this.cols + 1;
     while (movedInSweep) {
       if (++sweepCount > maxSweepCount) {
         console.error("[Board] Sticky-gravity safety limit reached.", {
@@ -381,10 +460,10 @@ export class Board {
         while (
           island.every(({ x, y }) => {
             const nextY = y + fall + 1;
-            return nextY < ROWS && !occupied.has(`${x},${nextY}`);
+            return nextY < this.rows && !occupied.has(`${x},${nextY}`);
           })
         ) {
-          if (fall >= ROWS) {
+          if (fall >= this.rows) {
             console.error("[Board] Sticky-gravity fall safety limit reached.", { fall, islandSize: island.length });
             break;
           }

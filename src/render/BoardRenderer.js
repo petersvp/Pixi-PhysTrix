@@ -47,7 +47,11 @@ export class BoardRenderer {
     frameLayer,
     material,
     trashMaterial = material,
+    cols = COLS,
+    rows = ROWS,
   ) {
+    this.cols = cols;
+    this.rows = rows;
     // The playfield background, the active mino layer, and the border overlay are
     // all separate Pixi Graphics/Container objects so they can be redrawn and
     // updated independently during the render loop.
@@ -134,11 +138,11 @@ export class BoardRenderer {
   }
 
   buildGlowPoints() {
-    const fieldHeight = ROWS * CELL;
+    const fieldHeight = this.rows * CELL;
     const outerInset = -PLAYFIELD_OUTER_GLOW_OUTSET;
     const railY = fieldHeight + Math.abs(outerInset) + 2;
     const leftX = outerInset;
-    const rightX = COLS * CELL - outerInset;
+    const rightX = this.cols * CELL - outerInset;
     const radius = Math.min(PLAYFIELD_GLOW_CORNER_RADIUS, (rightX - leftX) / 2);
     const capLength = Math.min(PLAYFIELD_GLOW_CAP_LENGTH, railY - radius);
     const points = [
@@ -204,7 +208,7 @@ export class BoardRenderer {
   }
 
   drawStaticFrame() {
-    const fieldHeight = ROWS * CELL;
+    const fieldHeight = this.rows * CELL;
     const frameExtension = PLAYFIELD_FRAME_EXTENSION;
     const frameYOffset = PLAYFIELD_FRAME_Y_OFFSET;
     const frame = this.crispFrame;
@@ -236,10 +240,10 @@ export class BoardRenderer {
         .moveTo(inset, frameYOffset)
         .lineTo(inset, fieldHeight + Math.abs(inset) + 2 + frameYOffset)
         .lineTo(
-          COLS * CELL - inset,
+          this.cols * CELL - inset,
           fieldHeight + Math.abs(inset) + 2 + frameYOffset,
         )
-        .lineTo(COLS * CELL - inset, frameYOffset)
+        .lineTo(this.cols * CELL - inset, frameYOffset)
         .stroke({ width, color, alpha, cap: "butt", join: "miter" });
     });
   }
@@ -281,15 +285,15 @@ export class BoardRenderer {
       const g = this.background;
       // The grid is invariant for a Playfield lifetime, so build it once.
       g.clear()
-        .rect(0, 0, COLS * CELL, ROWS * CELL)
+        .rect(0, 0, this.cols * CELL, this.rows * CELL)
         .fill(COLORS.FIELD_BG);
-      for (let x = 0; x <= COLS; x++)
+      for (let x = 0; x <= this.cols; x++)
         g.moveTo(x * CELL, 0)
-          .lineTo(x * CELL, ROWS * CELL)
+          .lineTo(x * CELL, this.rows * CELL)
           .stroke({ width: 1, color: COLORS.FIELD_GRID, alpha: 0.22 });
-      for (let y = 0; y <= ROWS; y++)
+      for (let y = 0; y <= this.rows; y++)
         g.moveTo(0, y * CELL)
-          .lineTo(COLS * CELL, y * CELL)
+          .lineTo(this.cols * CELL, y * CELL)
           .stroke({ width: 1, color: COLORS.FIELD_GRID, alpha: 0.22 });
     }
     // Paint each connected group of tiles as a single silhouette so adjacent minos

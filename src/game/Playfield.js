@@ -113,6 +113,8 @@ export class Playfield {
       this.frameLayer,
       this.material,
       this.trashMaterial,
+      cols,
+      rows,
     );
     this.effects = new EffectsRenderer(this.effectsLayer);
     this.hud = new SinglePlayerHud({
@@ -131,7 +133,11 @@ export class Playfield {
   }
 
   createPhysicsWorld(api, preset, config) {
-    this.physics = new PhysicsWorld(api, preset, config);
+    this.physics = new PhysicsWorld(api, preset, {
+      ...config,
+      cols: this.layout.cols,
+      rows: this.layout.rows,
+    });
     this.physicsLayer = new PIXI.Container();
     this.physicsLayer.label = "physicsMinoLayer";
     this.gridRoot.addChildAt(

@@ -106,23 +106,30 @@ export class CurveLut {
       ![2, 8, 16, 32].includes(data.resolution) ||
       data.points.length !== data.resolution ||
       !["linear", "smooth", "hold"].includes(data.mode)
-    )
-      throw new Error("Invalid curve skin data.");
+    ) {
+      console.error("[CurveLut] Ignored invalid curve skin data.", { data });
+      return false;
+    }
     if (
       !data.points.every(
         (value) =>
           value == null || (Number.isFinite(value) && value >= 0 && value <= 1),
       )
-    )
-      throw new Error("Invalid curve skin points.");
+    ) {
+      console.error("[CurveLut] Ignored invalid curve skin points.", { data });
+      return false;
+    }
     if (
       !Number.isFinite(data.points[0]) ||
       !Number.isFinite(data.points[data.points.length - 1])
-    )
-      throw new Error("Curve endpoints are required.");
+    ) {
+      console.error("[CurveLut] Ignored curve without endpoints.", { data });
+      return false;
+    }
     this.points = [...data.points];
     this.mode = data.mode;
     this.update();
+    return true;
   }
 
   setResolution(resolution) {

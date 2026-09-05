@@ -16,11 +16,10 @@ import {
   guidelineScore,
   guidelineSpinScore,
 } from "../game/Scoring.js";
-import { chainName, findColorChainCells } from "../game/ChainSystem.js";
+import { chainName, findColorChainGroups } from "../game/ChainSystem.js";
 import {
   CLASSIC_VANISH_DURATION_MS,
   CELL,
-  COLS,
 } from "../config/gameplayConstants.js";
 import {
   CLEAR_PARTICLE_COUNT_PER_MINO,
@@ -62,6 +61,11 @@ export class ClassicGameplay extends GameplayContract {
   isControlFrozen() {
     return Boolean(this.resolve);
   }
+  gravityType(game) {
+    return game.session?.roomRules?.grid?.gravityType === "classic"
+      ? "classic"
+      : "clustered";
+  }
 
   lock(game) {
     const piece = game.active;
@@ -81,7 +85,14 @@ export class ClassicGameplay extends GameplayContract {
   }
   scan(game, initial = false) {
     const chainRules = game.session?.roomRules?.chain || {};
-    const colorCells = findColorChainCells(game.board, chainRules);
+    const colorGroups = findColorChainGroups(game.board, chainRules);
+    const colorCells = [
+      ...new Map(
+        colorGroups.flatMap((group) =>
+          group.cells.map((cell) => [`${cell.x},${cell.y}`, cell]),
+        ),
+      ).values(),
+    ];
     const rows = colorCells.length ? [] : game.board.findFullLines();
     if (rows.length || colorCells.length) {
       if (colorCells.length) game.board.markCells(colorCells);
@@ -94,6 +105,7 @@ export class ClassicGameplay extends GameplayContract {
         initial,
         rows,
         colorCells,
+        colorGroups,
       };
       return;
     }
@@ -121,7 +133,7 @@ export class ClassicGameplay extends GameplayContract {
     });
     this.pendingSpin = "";
   }
-  awardClear(game, lines, clearedRows = [], trashUp = false) {
+  awardClear(game, lines, clearedRows = [], trashUp = false, extraMinos = 0) {
     game.playfield.matchPunch();
     const spin = this.pendingSpin;
     game.lines += lines;
@@ -149,7 +161,7 @@ export class ClassicGameplay extends GameplayContract {
     if (spin === "MEGASPIN") game.goalProgress.megaspins += 1;
     if (allClear) game.goalProgress.perfectClears += 1;
     game.sound.clear(lines);
-    const clearName = `${chainName(lines)}!`;
+    const clearName = `${chainName(lines)}${extraMinos > 0 ? `+${extraMinos}` : ""}!`;
     const primary = trashUp
       ? "TRASH\nUP!"
       : allClear
@@ -195,19 +207,17 @@ export class ClassicGameplay extends GameplayContract {
     if (this.resolve.phase === "mark") {
       this.resolve.remaining -= ms;
       if (this.resolve.remaining > 0) return;
+      const gravity = this.gravityType(game);
       const cleared = this.resolve.colorCells.length
-        ? game.board.resolveMarkedCells()
-        : game.board.resolveMarkedLines();
+        ? game.board.resolveMarkedCells(gravity)
+        : game.board.resolveMarkedLines(gravity);
       const lines = this.resolve.colorCells.length
-        ? Math.max(
-            1,
-            [...game.board.lastClearedTiles
-              .filter((tile) => tile.x >= 0 && tile.x < COLS)
-              .reduce((rows, tile) => rows.set(tile.y, (rows.get(tile.y) || 0) + 1), new Map())
-              .values()]
-              .filter((count) => count >= COLS).length,
-          )
+        ? Math.max(1, this.resolve.colorGroups.length)
         : cleared;
+      const extraMinos = this.resolve.colorGroups.reduce(
+        (sum, group) => sum + (Number(group.extraMinoCount) || 0),
+        0,
+      );
       game.board.lastClearedTiles.forEach((tile) =>
         game.playfield.effects.burst(
           tile.x,
@@ -224,7 +234,7 @@ export class ClassicGameplay extends GameplayContract {
         game.board.reset();
         game.trash.advance();
       }
-      this.awardClear(game, lines, this.resolve.rows, trashUp);
+      this.awardClear(game, lines, this.resolve.rows, trashUp, extraMinos);
       if (trashUp) {
         this.resolve.phase = "trashUp";
         this.resolve.remaining = TRASH_UP_TRANSITION_MS;

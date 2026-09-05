@@ -38,13 +38,15 @@ const PHYSICS_MATERIAL_PRESETS = Object.freeze({
   rubber: { density: PHYSICS_MASS, friction: 0.45, restitution: 0.88 },
 });
 
-const MAX_FIXTURE_CHAIN_STEPS = ROWS * COLS + 8;
-const MAX_FRAGMENT_RESOLVE_CELLS = ROWS * COLS;
 
 /** Owns the Box2D world and every locked compound body in physics gameplay. */
 export class PhysicsWorld {
   constructor(api = globalThis.Box2D, preset = "balanced", config = {}) {
-    if (!api) throw new Error("Box2D failed to load.");
+    if (!api) {
+      console.error("[Physics] Box2D failed to load.");
+      this.unavailable = true;
+      return;
+    }
     this.api = api;
     this.material =
       PHYSICS_MATERIAL_PRESETS[preset] || PHYSICS_MATERIAL_PRESETS.balanced;
@@ -59,6 +61,10 @@ export class PhysicsWorld {
         }))
       : [this.material];
     this.config = config;
+    this.cols = Math.max(4, Math.floor(Number(config.cols) || COLS));
+    this.rows = Math.max(4, Math.floor(Number(config.rows) || ROWS));
+    this.maxFixtureChainSteps = this.rows * this.cols + 8;
+    this.maxFragmentResolveCells = this.rows * this.cols;
     const { b2Vec2 } = api.Common.Math;
     this.world = new api.Dynamics.b2World(new b2Vec2(0, Number(config.gravity) || 24), true);
     this.bodies = [];
@@ -68,6 +74,8 @@ export class PhysicsWorld {
       api,
       Number(config.tolerance) || undefined,
       config.chain,
+      this.cols,
+      this.rows,
     );
     this.vanish = new VanishSystem(VANISH_DURATION_MS);
     this.setupContactListener();
@@ -104,7 +112,7 @@ export class PhysicsWorld {
     data.temporaryMassBoost = Math.max(0, boost);
     let fixtureSteps = 0;
     for (let fixture = body.GetFixtureList(); fixture; fixture = fixture.GetNext()) {
-      if (++fixtureSteps > MAX_FIXTURE_CHAIN_STEPS) {
+      if (++fixtureSteps > this.maxFixtureChainSteps) {
         console.error("[Physics] Fixture-chain safety limit reached while setting mass.", {
           fixtureSteps,
           polyominoId: data.polyominoId,
@@ -198,9 +206,9 @@ export class PhysicsWorld {
       } = this.api,
       body = this.world.CreateBody(new Dynamics.b2BodyDef());
     [
-      [COLS / 2, ROWS + 0.5, COLS / 2 + 0.5, 0.5],
-      [-0.5, ROWS / 2, 0.5, ROWS / 2],
-      [COLS + 0.5, ROWS / 2, 0.5, ROWS / 2],
+      [this.cols / 2, this.rows + 0.5, this.cols / 2 + 0.5, 0.5],
+      [-0.5, this.rows / 2, 0.5, this.rows / 2],
+      [this.cols + 0.5, this.rows / 2, 0.5, this.rows / 2],
     ].forEach(([x, y, hx, hy]) => {
       const s = new Shapes.b2PolygonShape();
       s.SetAsOrientedBox(hx, hy, new Math.b2Vec2(x, y), 0);
@@ -265,7 +273,7 @@ export class PhysicsWorld {
     if (rebuild) {
       let fixtureSteps = 0;
       for (let fixture = this.controlBody.GetFixtureList(); fixture;) {
-        if (++fixtureSteps > MAX_FIXTURE_CHAIN_STEPS) {
+        if (++fixtureSteps > this.maxFixtureChainSteps) {
           console.error("[Physics] Fixture-chain safety limit reached while rebuilding control body.", {
             fixtureSteps,
           });
@@ -311,10 +319,10 @@ export class PhysicsWorld {
       } = this.api,
       cells = piece.cells();
     if (!cells.length) return null;
-    if (cells.length > MAX_FRAGMENT_RESOLVE_CELLS) {
+    if (cells.length > this.maxFragmentResolveCells) {
       console.error("[Physics] Refusing oversized locked polyomino.", {
         cells: cells.length,
-        maximum: MAX_FRAGMENT_RESOLVE_CELLS,
+        maximum: this.maxFragmentResolveCells,
       });
       return null;
     }
@@ -599,7 +607,7 @@ export class PhysicsWorld {
       let componentCount = 0;
       let visitedCells = 0;
       while (remainingByPosition.size) {
-        if (++componentCount > MAX_FRAGMENT_RESOLVE_CELLS) {
+        if (++componentCount > this.maxFragmentResolveCells) {
           console.error("[Physics] Fragment component safety limit reached.", {
             componentCount,
             remainingCells: remainingByPosition.size,
@@ -610,7 +618,7 @@ export class PhysicsWorld {
         remainingByPosition.delete(firstKey);
         const component = [first];
         for (let index = 0; index < component.length; index++) {
-          if (++visitedCells > MAX_FRAGMENT_RESOLVE_CELLS) {
+          if (++visitedCells > this.maxFragmentResolveCells) {
             console.error("[Physics] Fragment cell safety limit reached.", {
               visitedCells,
               componentSize: component.length,

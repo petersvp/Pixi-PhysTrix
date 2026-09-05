@@ -10,8 +10,8 @@ import { createHardModeBag } from "./bags.js";
 export const COLS = 10;
 export const ROWS = 20;
 
-// Classic line clears normally use Guideline row collapse. Enable this to
-// make each surviving connected piece fragment fall as a rigid grid group.
+// Fallback for standalone sessions without a room gravity setting. A room's
+// grid.gravityType selects classic row/column collapse or clustered fragments.
 export const CLASSIC_STICKY_GRAVITY = true;
 // Classic clear resolution. Marked lines remain visible briefly, then every
 // surviving sticky group animates to its new grid position before a rescan.

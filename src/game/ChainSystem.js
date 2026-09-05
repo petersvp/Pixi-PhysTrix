@@ -31,8 +31,8 @@ const lineClearNames = [
 export const chainName = (count) =>
   lineClearNames[Math.min(20, count)] || `IMPOSTRIX`;
 
-/** Find removable same-colour minos without changing a polyomino's topology. */
-export function findColorChainCells(board, rules = {}) {
+/** Find each removable same-colour group without changing polyomino topology. */
+export function findColorChainGroups(board, rules = {}) {
   const mode = rules.mode;
   if (mode === "color-lines") {
     const minimum = Math.max(2, Number(rules.colorLineLength) || 2);
@@ -41,7 +41,7 @@ export function findColorChainCells(board, rules = {}) {
       ...(rules.vertical ? [[0, 1]] : []),
       ...(rules.diagonal ? [[1, 1], [1, -1]] : []),
     ];
-    const result = new Map();
+    const groups = [];
     board.forEachCell((tile, x, y) => {
       directions.forEach(([dx, dy]) => {
         const previous = board.get(x - dx, y - dy);
@@ -49,16 +49,27 @@ export function findColorChainCells(board, rules = {}) {
         const run = [];
         for (let px = x, py = y; board.get(px, py)?.colorIndex === tile.colorIndex; px += dx, py += dy)
           run.push({ x: px, y: py });
-        if (run.length >= minimum)
-          run.forEach((cell) => result.set(`${cell.x},${cell.y}`, cell));
+        if (run.length < minimum) return;
+        const intercept = dx === 1 && dy === 0
+          ? y
+          : dx === 0 && dy === 1
+            ? x
+            : dx === 1 && dy === 1
+              ? y - x
+              : x + y;
+        groups.push({
+          id: `color-line:${tile.colorIndex}:${dx},${dy}:${intercept}`,
+          cells: run,
+          extraMinoCount: run.length - minimum,
+        });
       });
     });
-    return [...result.values()];
+    return groups;
   }
   if (mode !== "color-clusters") return [];
   const minimum = Math.max(2, Number(rules.clusterSize) || 2);
   const visited = new Set();
-  const result = [];
+  const groups = [];
   board.forEachCell((tile, x, y) => {
     if (!Number.isInteger(tile.colorIndex) || tile.colorIndex < 0) return;
     const key = `${x},${y}`;
@@ -75,7 +86,21 @@ export function findColorChainCells(board, rules = {}) {
         group.push({ x: nx, y: ny });
       });
     }
-    if (group.length >= minimum) result.push(...group);
+    if (group.length >= minimum)
+      groups.push({
+        id: `color-cluster:${tile.colorIndex}:${key}`,
+        cells: group,
+        extraMinoCount: group.length - minimum,
+      });
   });
-  return result;
+  return groups;
+}
+
+/** Preserve the cell-only API for consumers that do not need group metadata. */
+export function findColorChainCells(board, rules = {}) {
+  const cells = new Map();
+  findColorChainGroups(board, rules).forEach((group) =>
+    group.cells.forEach((cell) => cells.set(`${cell.x},${cell.y}`, cell)),
+  );
+  return [...cells.values()];
 }

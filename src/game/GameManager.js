@@ -45,8 +45,6 @@ import { safeTickerDelta } from "../app/TickerSafety.js";
 // mino-only render-texture capture pass is deliberately disabled for now.
 const ENABLE_REFLECTION_CAPTURE = false;
 const MAX_GRAVITY_CATCH_UP_STEPS = 512;
-const MAX_DIRECT_MOVE_STEPS = COLS + 2;
-const MAX_HARD_DROP_STEPS = ROWS + 8;
 
 /** Shared Guideline controller; gameplay modes provide mode-specific world behavior. */
 export class GameManager {
@@ -60,8 +58,11 @@ export class GameManager {
     this.mount = mount;
     this.gameplay = gameplay;
     this.session = session;
+    const grid = this.session?.roomRules?.grid || {};
+    this.cols = Math.max(4, Math.min(99, Math.floor(Number(grid.width) || COLS)));
+    this.rows = Math.max(4, Math.min(99, Math.floor(Number(grid.height) || ROWS)));
     this.settings = loadPersistentSettings();
-    this.board = new Board();
+    this.board = new Board(this.cols, this.rows);
     this.queue = new PieceQueue(Math.random, this.session?.polyominoPreset, this.session?.roomRules);
     this.holdEnabled = this.session?.roomRules?.mutators?.enableHold !== false;
     this.input = new InputManager();
@@ -89,8 +90,11 @@ export class GameManager {
     // Sessions always run inside AppShell's persistent v8 Application.
     // Creating a second renderer here would violate scene routing and can
     // invalidate the shared reflection targets.
-    if (!app)
-      throw new Error("GameManager requires the shared AppShell application.");
+    if (!app) {
+      console.error("[GameManager] Missing shared AppShell application.");
+      this.failed = true;
+      return;
+    }
     this.app = app;
     this.root = sceneRoot || new PIXI.Container();
     this.root.label = "gameRoot";
@@ -101,13 +105,16 @@ export class GameManager {
     globalThis.__PIXI_DEVTOOLS__ = { app: this.app };
     this.playfield = new Playfield({
       root: this.root,
-      cols: COLS,
-      rows: ROWS,
+      cols: this.cols,
+      rows: this.rows,
       cell: CELL,
       skinBaseUrl: this.session?.skinBaseUrl,
     });
     this.playfield.loadSkin(this.session?.skin);
-    this.playfield.setPalette(this.session?.roomRules?.chain?.colors || []);
+    const chain = this.session?.roomRules?.chain || {};
+    this.playfield.setPalette(
+      (chain.colors || []).slice(0, Math.max(1, Math.floor(Number(chain.colorCount) || 1))),
+    );
     this.playfield.setHoldAction(() => this.holdPiece());
     this.playfield.setRestartAction(() => this.restartAfterGameOver());
     this.trash = new TrashSystem(this.session?.trash, Math.random, this.session?.roomRules);
@@ -160,6 +167,7 @@ export class GameManager {
     this.render();
   }
   start() {
+    if (this.failed) return false;
     this.board.reset();
     this.gameplay.reset(this);
     this.trash = new TrashSystem(this.session?.trash, Math.random, this.session?.roomRules);
@@ -197,10 +205,13 @@ export class GameManager {
     if (this.state === GameState.PLAYING) this.playfield.hud.hideStateMessage();
   }
   canSpawn(type = this.queue.peek()) {
-    return this.board.isValid(new Polyomino(type).cells());
+    const piece = new Polyomino(type);
+    piece.x = (this.cols - Math.max(...piece.matrix.map((row) => row.length))) >> 1;
+    return this.board.isValid(piece.cells());
   }
   spawn(type = this.queue.next()) {
     this.active = new Polyomino(type);
+    this.active.x = (this.cols - Math.max(...this.active.matrix.map((row) => row.length))) >> 1;
     this.statistics.recordSpawn(this.active.type);
     this.touchSoftDropTargetY = null;
     this.active.id = this.id++;
@@ -248,7 +259,16 @@ export class GameManager {
       this.board.raycastClear(this.active.cells(), next)
     );
   }
+  fallingDisabled() {
+    return Boolean(this.session?.roomRules?.mutators?.disableFalling);
+  }
   updateLockState(successfulAction = false) {
+    if (this.fallingDisabled()) {
+      this.grounded = false;
+      this.lockTimer = 0;
+      this.lockResets = 0;
+      return;
+    }
     const groundedNow = !this.canMoveDown();
     if (!groundedNow) {
       this.grounded = false;
@@ -266,6 +286,12 @@ export class GameManager {
     }
   }
   advanceLockDelay(ms) {
+    if (this.fallingDisabled()) {
+      this.grounded = false;
+      this.lockTimer = 0;
+      this.lockResets = 0;
+      return false;
+    }
     this.updateLockState();
     if (!this.grounded) return false;
     this.lockTimer += ms;
@@ -276,10 +302,13 @@ export class GameManager {
   holdPiece() {
     if (!this.holdEnabled || !this.canAcceptDirectControl() || !this.canHold)
       return false;
-    // The queued definition owns generated palette colours. Preserve those
-    // authored values through Pocket instead of falling back to catalog data.
+    // Pocket stores the active piece's current geometry and minos.  Its
+    // definition matrix is the spawn orientation, so using it after a rotate
+    // would pair a rotated mino list with the old matrix and silently repair
+    // the missing minos with replacement colours.
     const outgoing = {
       ...this.active.definition,
+      matrix: this.active.matrix.map((row) => row.slice()),
       color: this.active.color,
       colorIndex: this.active.colorIndex,
       palette: this.active.palette,
@@ -318,7 +347,7 @@ export class GameManager {
     let moved = false;
     let steps = 0;
     while (direction && this.active.x !== targetX) {
-      if (++steps > MAX_DIRECT_MOVE_STEPS) {
+      if (++steps > this.cols + 2) {
         console.error("[Game] Horizontal move safety limit reached.", { targetX, x: this.active.x, steps });
         break;
       }
@@ -334,7 +363,7 @@ export class GameManager {
     const hardDropStart = this.active.cells();
     let steps = 0;
     while (this.active.move(this.board, 0, 1)) {
-      if (++steps > MAX_HARD_DROP_STEPS) {
+      if (++steps > this.rows + 8) {
         console.error("[Game] Hard-drop safety limit reached.", { y: this.active.y, steps });
         break;
       }
@@ -349,6 +378,7 @@ export class GameManager {
       fromCells: hardDropStart,
       toCells: this.active.cells(),
       colorIndex: this.active.colorIndex,
+      baseColor: this.active.color,
     });
     this.playfield.hardDropPunch();
     this.lock({ hardDrop: true });
@@ -644,7 +674,7 @@ export class GameManager {
       this.softDropRepeat = 0;
       if (!keyboardSoftDrop) this.touchSoftDropTargetY = null;
     }
-    if (this.session?.roomRules?.mutators?.disableFalling) {
+    if (this.fallingDisabled()) {
       this.gravity = 0;
     } else this.gravity += ms;
     const gravityInterval = this.interval();
@@ -652,7 +682,7 @@ export class GameManager {
     // gravity intervals, especially at high levels, and must advance once
     // for every elapsed interval instead of silently losing fall steps.
     let gravitySteps = 0;
-    while (!this.session?.roomRules?.mutators?.disableFalling && this.gravity >= gravityInterval) {
+    while (!this.fallingDisabled() && this.gravity >= gravityInterval) {
       if (++gravitySteps > MAX_GRAVITY_CATCH_UP_STEPS) {
         console.error("[Game] Gravity catch-up safety limit reached; dropping remaining gravity time.", {
           gravity: this.gravity,

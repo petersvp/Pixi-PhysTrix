@@ -126,6 +126,7 @@ export const createPlayfieldLayout = ({
     y,
     width: boardWidth,
     height: boardHeight,
+    cols,
     cell,
     rows,
     scale,
@@ -1059,13 +1060,14 @@ export class SinglePlayerHud {
     points = 0,
     perfect = false,
     allClear = false,
+    extraMinos = 0,
   ) {
     const y =
       this.overlayLayout.y +
       Math.max(2, Math.min(this.overlayLayout.rows - 2, row)) *
         this.overlayLayout.cell *
         this.overlayLayout.scale;
-    const clearName = `${chainName(lines)}!`;
+    const clearName = `${chainName(lines)}${extraMinos > 0 ? `+${extraMinos}` : ""}!`;
     const primary = allClear
       ? "PERFECT\nCLEAR!!!"
       : [spin, perfect ? "PERFECT" : "", clearName].filter(Boolean).join(" ");

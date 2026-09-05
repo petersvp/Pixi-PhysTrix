@@ -19,7 +19,7 @@ export class VanishSystem {
       const freshSet = new Set(fresh);
       rows
         .filter((row) => row.tiles.some((tile) => freshSet.has(tile)))
-        .forEach((row) => this.pendingLines.set(row.y, row));
+        .forEach((row) => this.pendingLines.set(row.id ?? row.y, row));
       this.deadline = now + this.duration;
     }
     return fresh;

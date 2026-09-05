@@ -67,7 +67,7 @@ export class PhysicsGameplay extends GameplayContract {
     game.board.isValid = (cells) =>
       cells.every(
         ({ x, y }) =>
-          x >= 0 && x < COLS && y < ROWS && !this.physics.pointOccupied(x, y),
+          x >= 0 && x < game.cols && y < game.rows && !this.physics.pointOccupied(x, y),
       );
     game.board.raycastClear = (_from, to) => game.board.isValid(to);
     game.physicsLayer = game.playfield.physicsLayer;
@@ -107,10 +107,10 @@ export class PhysicsGameplay extends GameplayContract {
   ) {
     const piece = game.active;
     if (!piece) return null;
-    if (piece.cells().length > ROWS * COLS) {
+    if (piece.cells().length > game.rows * game.cols) {
       console.error("[Physics] Refusing oversized active polyomino before lock.", {
         cells: piece.cells().length,
-        maximum: ROWS * COLS,
+        maximum: game.rows * game.cols,
       });
       return null;
     }
@@ -245,7 +245,7 @@ export class PhysicsGameplay extends GameplayContract {
     const vanished = result.vanished;
     if (!vanished.length) return;
     const lines =
-      result.vanishedLines.length || Math.floor(vanished.length / COLS);
+      result.vanishedLines.length || Math.floor(vanished.length / game.cols);
     if (!lines) return;
     game.playfield.matchPunch();
     vanished.forEach((tile) =>
@@ -271,6 +271,10 @@ export class PhysicsGameplay extends GameplayContract {
     const perfect =
       result.vanishedLines.length > 0 &&
       result.vanishedLines.every((row) => row.perfect);
+    const extraMinos = result.vanishedLines.reduce(
+      (sum, row) => sum + (Number(row.extraMinoCount) || 0),
+      0,
+    );
     const baseScore = spin
       ? guidelineSpinScore(
           spin,
@@ -324,6 +328,7 @@ export class PhysicsGameplay extends GameplayContract {
         pointsAwarded,
         perfect,
         allClear,
+        extraMinos,
       );
     // The spin belongs to the piece that was locked before the currently
     // controlled polyomino. A successful vanish consumes that one-turn flag.

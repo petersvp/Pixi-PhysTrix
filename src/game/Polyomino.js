@@ -45,9 +45,29 @@ export class Polyomino {
       : this.matrix.flatMap((row, y) =>
           row.flatMap((filled, x) => (filled ? [new Mino({ x, y })] : [])),
         );
-    this.colorIndex = Number.isInteger(source.colorIndex)
+    const fallbackColorIndex = Number.isInteger(source.colorIndex)
       ? source.colorIndex
       : this.minos[0]?.colorIndex ?? -1;
+    // A queued definition may cross a network/UI boundary with authored mino
+    // data. Its matrix remains the geometry authority: never let a missing
+    // mino turn the next controlled-body spawn into an uncaught exception.
+    const minosAt = new Set(this.minos.map((mino) => `${mino.x},${mino.y}`));
+    const repaired = [];
+    this.matrix.forEach((row, y) =>
+      row.forEach((filled, x) => {
+        if (!filled || minosAt.has(`${x},${y}`)) return;
+        const mino = new Mino({ x, y, colorIndex: fallbackColorIndex });
+        this.minos.push(mino);
+        repaired.push({ x, y });
+      }),
+    );
+    if (repaired.length)
+      console.error("[Polyomino] Repaired missing queued minos.", {
+        type: this.type,
+        repaired,
+        source,
+      });
+    this.colorIndex = fallbackColorIndex;
     const matrixWidth = Math.max(...this.matrix.map((row) => row.length));
     this.x = (COLS - matrixWidth) >> 1;
     this.y = -2;
@@ -62,8 +82,32 @@ export class Polyomino {
       r.forEach((v, px) =>
         v && (() => {
           const mino = minosAt.get(`${px},${py}`);
-          if (!mino)
-            throw new Error(`Polyomino ${this.type} is missing mino ${px},${py}.`);
+          if (!mino) {
+            // Construction repairs this already, but retain a last-resort
+            // recovery here for externally mutated active pieces.
+            console.error("[Polyomino] Recovered missing active mino.", {
+              type: this.type,
+              x: px,
+              y: py,
+            });
+            const recovered = new Mino({
+              x: px,
+              y: py,
+              colorIndex: this.colorIndex,
+            });
+            minos.push(recovered);
+            minosAt.set(`${px},${py}`, recovered);
+            cells.push({
+              ...recovered,
+              x: x + px,
+              y: y + py,
+              color:
+                recovered.colorIndex < 0
+                  ? this.color
+                  : this.palette?.[recovered.colorIndex],
+            });
+            return;
+          }
           cells.push({
             ...mino,
             x: x + px,

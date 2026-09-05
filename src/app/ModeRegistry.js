@@ -14,7 +14,10 @@ export class ModeRegistry {
   }
   create(id, context) {
     const Mode = this.modes.get(id);
-    if (!Mode) throw new Error(`Unknown gameplay mode: ${id}`);
+    if (!Mode) {
+      console.error("[ModeRegistry] Unknown gameplay mode.", { id });
+      return null;
+    }
     return new Mode(context);
   }
 }

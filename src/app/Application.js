@@ -154,6 +154,10 @@ export class Application {
       player,
       session: this.session,
     });
+    if (!this.mode) {
+      this.showStartMenu();
+      return;
+    }
     this.mode.start();
     const game = this.mode.game;
     // The inspector follows the active Playfield. It never owns a material,

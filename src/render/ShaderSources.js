@@ -9,26 +9,35 @@ let minoSources = null;
 
 export const loadMinoShaderSources = async () => {
   if (minoSources) return minoSources;
-  const load = (name) =>
-    fetch(new URL(`./${name}`, import.meta.url), { cache: "no-store" }).then(
-      (response) => {
-        if (!response.ok)
-          throw new Error(`Unable to load shader source: ${name}`);
-        return response.text();
-      },
-    );
-  const [vertex, fragment] = await Promise.all([
-    load("mino.vert.glsl"),
-    load("mino.frag.glsl"),
-  ]);
-  minoSources = { vertex, fragment };
+  try {
+    const load = async (name) => {
+      const response = await fetch(new URL(`./${name}`, import.meta.url), {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        console.error("[ShaderSources] Unable to load shader source.", {
+          name,
+          status: response.status,
+        });
+        return null;
+      }
+      return response.text();
+    };
+    const [vertex, fragment] = await Promise.all([
+      load("mino.vert.glsl"),
+      load("mino.frag.glsl"),
+    ]);
+    if (!vertex || !fragment) return null;
+    minoSources = { vertex, fragment };
+  } catch (error) {
+    console.error("[ShaderSources] Shader source loading failed.", error);
+    return null;
+  }
   return minoSources;
 };
 
 export const getMinoShaderSources = () => {
   if (!minoSources)
-    throw new Error(
-      "Mino shader sources were not loaded before gameplay started.",
-    );
+    console.error("[ShaderSources] Mino shader sources are not ready.");
   return minoSources;
 };
