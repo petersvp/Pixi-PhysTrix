@@ -11,6 +11,15 @@ export class CurveLut {
     samples = 64,
     transparentFirstTexel = false,
   ) {
+    const safeSamples = Math.min(
+      1024,
+      Math.max(2, Math.floor(Number(samples) || 2)),
+    );
+    if (safeSamples !== samples)
+      console.error("[CurveLut] Sample count was capped.", {
+        samples,
+        safeSamples,
+      });
     this.points = new Array(16).fill(null);
     points.forEach((value, index) => {
       const slot = Math.round((index * 15) / Math.max(1, points.length - 1));
@@ -19,11 +28,11 @@ export class CurveLut {
     this.points[0] ??= 0;
     this.points[15] ??= 1;
     this.defaultPoints = [...this.points];
-    this.samples = samples;
+    this.samples = safeSamples;
     this.transparentFirstTexel = transparentFirstTexel;
     this.mode = "linear";
     this.canvas = document.createElement("canvas");
-    this.canvas.width = samples;
+    this.canvas.width = safeSamples;
     this.canvas.height = 1;
     this.context = this.canvas.getContext("2d", { alpha: false });
     this.texture = PIXI.Texture.from(this.canvas);
@@ -117,6 +126,16 @@ export class CurveLut {
   }
 
   setResolution(resolution) {
+    const safeResolution = Math.min(
+      64,
+      Math.max(2, Math.floor(Number(resolution) || 2)),
+    );
+    if (safeResolution !== resolution)
+      console.error("[CurveLut] Resolution was capped.", {
+        resolution,
+        safeResolution,
+      });
+    resolution = safeResolution;
     const previous = this.points;
     const previousLength = previous.length;
     const samplePrevious = (t) => {

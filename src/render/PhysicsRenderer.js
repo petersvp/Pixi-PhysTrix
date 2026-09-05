@@ -148,6 +148,7 @@ export class PhysicsRenderer {
         cell.x,
         cell.y,
         cell.marked,
+        cell.color,
         cell.broken,
         cell.visualLinks,
       ]),

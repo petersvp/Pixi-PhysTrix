@@ -57,7 +57,17 @@ export const gravityIntervalForLevel = (level) => {
 };
 export const FIRST_MAX_GRAVITY_LEVEL = (() => {
   let level = 1;
-  while (gravityIntervalForLevel(level) > MIN_GRAVITY_INTERVAL_MS) level += 1;
+  let steps = 0;
+  while (gravityIntervalForLevel(level) > MIN_GRAVITY_INTERVAL_MS) {
+    if (++steps > 1000) {
+      console.error("[Gameplay] Gravity-level safety limit reached.", {
+        level,
+        interval: gravityIntervalForLevel(level),
+      });
+      break;
+    }
+    level += 1;
+  }
   return level;
 })();
 

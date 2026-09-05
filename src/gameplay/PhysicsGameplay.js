@@ -58,6 +58,10 @@ export class PhysicsGameplay extends GameplayContract {
     this.physics = game.playfield.createPhysicsWorld(
       globalThis.Box2D,
       game.session?.physicsPreset,
+      {
+        ...game.session?.roomRules?.physics,
+        chain: game.session?.roomRules?.chain,
+      },
     );
     game.physics = this.physics;
     game.board.isValid = (cells) =>
@@ -102,6 +106,14 @@ export class PhysicsGameplay extends GameplayContract {
     } = {},
   ) {
     const piece = game.active;
+    if (!piece) return null;
+    if (piece.cells().length > ROWS * COLS) {
+      console.error("[Physics] Refusing oversized active polyomino before lock.", {
+        cells: piece.cells().length,
+        maximum: ROWS * COLS,
+      });
+      return null;
+    }
     // A fresh lock closes the prior turn's spin window, whether or not this
     // newly locked polyomino itself qualifies as a spin.
     this.pendingSpin = game.detectSpin(piece);
@@ -281,7 +293,13 @@ export class PhysicsGameplay extends GameplayContract {
       guidelineComboScore(this.combo, game.level) +
       (allClear ? guidelineAllClearScore(lines, game.level) : 0);
     game.score += pointsAwarded;
-    game.level = game.startLevel + ((game.lines / 10) | 0) + 1;
+    game.updateSpeed();
+    if (this.combo >= (Number(game.session?.roomRules?.win?.comboLength) || Infinity))
+      game.goalProgress.combos += 1;
+    if (lines >= (Number(game.session?.roomRules?.win?.chainLength) || Infinity))
+      game.goalProgress.chains += 1;
+    if (spin === "MEGASPIN") game.goalProgress.megaspins += 1;
+    if (allClear) game.goalProgress.perfectClears += 1;
     const averageRow =
       vanished.reduce((sum, tile) => sum + tile.y, 0) / vanished.length;
     if (trashUp)

@@ -9,6 +9,23 @@
 
 import { CELL } from "../config/gameplayConstants.js";
 
+const MAX_PARTICLES_PER_BURST = 256;
+
+const safeParticleCount = (count, label) => {
+  const numericCount = Number(count);
+  const safeCount = Math.min(
+    MAX_PARTICLES_PER_BURST,
+    Math.max(0, Math.floor(Number.isFinite(numericCount) ? numericCount : 0)),
+  );
+  if (safeCount !== numericCount)
+    console.error("[Effects] Particle count was capped.", {
+      label,
+      count,
+      safeCount,
+    });
+  return safeCount;
+};
+
 export class EffectsRenderer {
   constructor(root) {
     this.root = root;
@@ -48,6 +65,7 @@ export class EffectsRenderer {
     verticalForce = 1,
     angle = 0,
   ) {
+    count = safeParticleCount(count, "burst");
     const cosine = Math.cos(angle);
     const sine = Math.sin(angle);
     for (let index = 0; index < count; index++) {
@@ -71,6 +89,7 @@ export class EffectsRenderer {
   // Emit a placement burst from only the exposed outline segments, rather
   // than from each mino centre. This makes a locked polyomino read as one body.
   outlineBurst(cells, color, count, force = 0.7) {
+    count = safeParticleCount(count, "outlineBurst");
     if (!cells.length || count <= 0) return;
     const occupied = new Set(cells.map(({ x, y }) => `${x},${y}`));
     const edges = [];

@@ -30,3 +30,51 @@ const lineClearNames = [
 ];
 export const chainName = (count) =>
   lineClearNames[Math.min(20, count)] || `IMPOSTRIX`;
+
+/** Find removable same-colour minos without changing a polyomino's topology. */
+export function findColorChainCells(board, rules = {}) {
+  const mode = rules.mode;
+  if (mode === "color-lines") {
+    const minimum = Math.max(2, Number(rules.colorLineLength) || 2);
+    const directions = [
+      ...(rules.horizontal ? [[1, 0]] : []),
+      ...(rules.vertical ? [[0, 1]] : []),
+      ...(rules.diagonal ? [[1, 1], [1, -1]] : []),
+    ];
+    const result = new Map();
+    board.forEachCell((tile, x, y) => {
+      directions.forEach(([dx, dy]) => {
+        const previous = board.get(x - dx, y - dy);
+        if (previous?.color === tile.color) return;
+        const run = [];
+        for (let px = x, py = y; board.get(px, py)?.color === tile.color; px += dx, py += dy)
+          run.push({ x: px, y: py });
+        if (run.length >= minimum)
+          run.forEach((cell) => result.set(`${cell.x},${cell.y}`, cell));
+      });
+    });
+    return [...result.values()];
+  }
+  if (mode !== "color-clusters") return [];
+  const minimum = Math.max(2, Number(rules.clusterSize) || 2);
+  const visited = new Set();
+  const result = [];
+  board.forEachCell((tile, x, y) => {
+    const key = `${x},${y}`;
+    if (visited.has(key)) return;
+    visited.add(key);
+    const group = [{ x, y }];
+    for (let index = 0; index < group.length; index += 1) {
+      const cell = group[index];
+      [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
+        const nx = cell.x + dx, ny = cell.y + dy, nextKey = `${nx},${ny}`;
+        const next = board.get(nx, ny);
+        if (!next || next.color !== tile.color || visited.has(nextKey)) return;
+        visited.add(nextKey);
+        group.push({ x: nx, y: ny });
+      });
+    }
+    if (group.length >= minimum) result.push(...group);
+  });
+  return result;
+}

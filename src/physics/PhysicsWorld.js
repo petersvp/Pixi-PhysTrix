@@ -38,18 +38,37 @@ const PHYSICS_MATERIAL_PRESETS = Object.freeze({
   rubber: { density: PHYSICS_MASS, friction: 0.45, restitution: 0.88 },
 });
 
+const MAX_FIXTURE_CHAIN_STEPS = ROWS * COLS + 8;
+const MAX_FRAGMENT_RESOLVE_CELLS = ROWS * COLS;
+
 /** Owns the Box2D world and every locked compound body in physics gameplay. */
 export class PhysicsWorld {
-  constructor(api = globalThis.Box2D, preset = "balanced") {
+  constructor(api = globalThis.Box2D, preset = "balanced", config = {}) {
     if (!api) throw new Error("Box2D failed to load.");
     this.api = api;
     this.material =
       PHYSICS_MATERIAL_PRESETS[preset] || PHYSICS_MATERIAL_PRESETS.balanced;
+    this.materials = Array.isArray(config.materials) && config.materials.length
+      ? config.materials.map((material) => ({
+          density: Math.max(
+            0.01,
+            Math.min(20, Number(material.density) || PHYSICS_MASS),
+          ),
+          friction: Math.max(0, Number(material.friction) || 0),
+          restitution: Math.max(0, Number(material.bounciness) || 0),
+        }))
+      : [this.material];
+    this.config = config;
     const { b2Vec2 } = api.Common.Math;
-    this.world = new api.Dynamics.b2World(new b2Vec2(0, 24), true);
+    this.world = new api.Dynamics.b2World(new b2Vec2(0, Number(config.gravity) || 24), true);
     this.bodies = [];
     this.nextLockedPolyominoId = 1;
-    this.scanner = new FrameRuleScanner(this.world, api);
+    this.scanner = new FrameRuleScanner(
+      this.world,
+      api,
+      Number(config.tolerance) || undefined,
+      config.chain,
+    );
     this.vanish = new VanishSystem(VANISH_DURATION_MS);
     this.setupContactListener();
     this.createBounds();
@@ -83,8 +102,16 @@ export class PhysicsWorld {
     const data = body.GetUserData();
     if (!data) return;
     data.temporaryMassBoost = Math.max(0, boost);
+    let fixtureSteps = 0;
     for (let fixture = body.GetFixtureList(); fixture; fixture = fixture.GetNext()) {
-      const density = this.material.density + data.temporaryMassBoost;
+      if (++fixtureSteps > MAX_FIXTURE_CHAIN_STEPS) {
+        console.error("[Physics] Fixture-chain safety limit reached while setting mass.", {
+          fixtureSteps,
+          polyominoId: data.polyominoId,
+        });
+        break;
+      }
+      const density = (data.material || this.material).density + data.temporaryMassBoost;
       // `fixture.density = value` only creates a JavaScript-side property in
       // Box2DWeb. SetDensity updates the native fixture mass used by contact
       // resolution; ResetMassData then updates the compound body's inertia.
@@ -140,21 +167,21 @@ export class PhysicsWorld {
     data.temporaryMassImpactHoldElapsed = 0;
     data.temporaryMassImpactHoldDurationMs = Math.max(0, impactHoldDurationMs);
     data.temporaryMassInitialBoost =
-      this.material.density * (Math.max(1, multiplier) - 1);
+      (data.material || this.material).density * (Math.max(1, multiplier) - 1);
     this.setTemporaryMass(body, data.temporaryMassInitialBoost);
   }
   beginReleaseMass(body) {
     this.beginTemporaryMass(
       body,
-      PHYSICS_RELEASE_MASS_MULTIPLIER,
-      PHYSICS_RELEASE_MASS_RESET_DURATION_MS,
+      this.config.releaseMassMultiplier || PHYSICS_RELEASE_MASS_MULTIPLIER,
+      this.config.releaseMassResetMs || PHYSICS_RELEASE_MASS_RESET_DURATION_MS,
     );
   }
   beginHardDropMass(body) {
     this.beginTemporaryMass(
       body,
-      PHYSICS_HARD_DROP_MASS_MULTIPLIER,
-      PHYSICS_HARD_DROP_MASS_RESET_DURATION_MS,
+      this.config.hardDropMassMultiplier || PHYSICS_HARD_DROP_MASS_MULTIPLIER,
+      this.config.hardDropMassResetMs || PHYSICS_HARD_DROP_MASS_RESET_DURATION_MS,
       PHYSICS_HARD_DROP_MASS_IMPACT_HOLD_DURATION_MS,
     );
   }
@@ -210,6 +237,7 @@ export class PhysicsWorld {
     def.allowSleep = false;
     this.controlBody = this.world.CreateBody(def);
     this.controlSignature = "";
+    this.controlMaterial = this.materials[piece.definition.materialIndex] || this.material;
     this.syncControlled(piece, 0, true);
   }
 
@@ -235,7 +263,14 @@ export class PhysicsWorld {
       .join("|");
     const rebuild = forceFixtures || signature !== this.controlSignature;
     if (rebuild) {
+      let fixtureSteps = 0;
       for (let fixture = this.controlBody.GetFixtureList(); fixture;) {
+        if (++fixtureSteps > MAX_FIXTURE_CHAIN_STEPS) {
+          console.error("[Physics] Fixture-chain safety limit reached while rebuilding control body.", {
+            fixtureSteps,
+          });
+          break;
+        }
         const next = fixture.GetNext();
         this.controlBody.DestroyFixture(fixture);
         fixture = next;
@@ -250,8 +285,8 @@ export class PhysicsWorld {
         );
         const fixture = new Dynamics.b2FixtureDef();
         fixture.shape = shape;
-        fixture.friction = this.material.friction;
-        fixture.restitution = this.material.restitution;
+        fixture.friction = this.controlMaterial.friction;
+        fixture.restitution = this.controlMaterial.restitution;
         this.controlBody.CreateFixture(fixture);
       });
       // A discrete rotation changes the compound shape immediately.
@@ -276,6 +311,13 @@ export class PhysicsWorld {
       } = this.api,
       cells = piece.cells();
     if (!cells.length) return null;
+    if (cells.length > MAX_FRAGMENT_RESOLVE_CELLS) {
+      console.error("[Physics] Refusing oversized locked polyomino.", {
+        cells: cells.length,
+        maximum: MAX_FRAGMENT_RESOLVE_CELLS,
+      });
+      return null;
+    }
     const origin = polyominoCentroid(cells),
       def = new Dynamics.b2BodyDef();
     def.type = Dynamics.b2Body.b2_dynamicBody;
@@ -284,6 +326,7 @@ export class PhysicsWorld {
       data = {
         polyominoId: this.nextLockedPolyominoId++,
         color: piece.color,
+        material: this.materials[piece.definition.materialIndex] || this.material,
         cells: cells.map((c) => ({ ...c, marked: false })),
         origin,
         visualPose: { x: origin.x, y: origin.y, angle: 0 },
@@ -326,9 +369,9 @@ export class PhysicsWorld {
       );
       const f = new Dynamics.b2FixtureDef();
       f.shape = s;
-      f.density = this.material.density;
-      f.friction = this.material.friction;
-      f.restitution = this.material.restitution;
+      f.density = data.material.density;
+      f.friction = data.material.friction;
+      f.restitution = data.material.restitution;
       body.CreateFixture(f).SetUserData(cell);
     });
     data.temporaryMassActive = false;
@@ -420,7 +463,7 @@ export class PhysicsWorld {
   hasPendingVanish() {
     return this.vanish.pending();
   }
-  createFragment(cells, color, origin, pose) {
+  createFragment(cells, color, material, origin, pose) {
     const {
       Dynamics,
       Collision: { Shapes },
@@ -486,14 +529,15 @@ export class PhysicsWorld {
       );
       const fixture = new Dynamics.b2FixtureDef();
       fixture.shape = shape;
-      fixture.density = this.material.density;
-      fixture.friction = this.material.friction;
-      fixture.restitution = this.material.restitution;
+      fixture.density = material.density;
+      fixture.friction = material.friction;
+      fixture.restitution = material.restitution;
       body.CreateFixture(fixture).SetUserData(cell);
     });
     const data = {
       polyominoId: this.nextLockedPolyominoId++,
       color,
+      material,
       cells: fragmentCells,
       origin: fragmentOrigin,
       visualPose: {
@@ -547,11 +591,29 @@ export class PhysicsWorld {
         remaining.map((tile) => [`${tile.x},${tile.y}`, tile]),
       );
       const components = [];
+      let componentCount = 0;
+      let visitedCells = 0;
       while (remainingByPosition.size) {
+        if (++componentCount > MAX_FRAGMENT_RESOLVE_CELLS) {
+          console.error("[Physics] Fragment component safety limit reached.", {
+            componentCount,
+            remainingCells: remainingByPosition.size,
+          });
+          break;
+        }
         const [firstKey, first] = remainingByPosition.entries().next().value;
         remainingByPosition.delete(firstKey);
         const component = [first];
         for (let index = 0; index < component.length; index++) {
+          if (++visitedCells > MAX_FRAGMENT_RESOLVE_CELLS) {
+            console.error("[Physics] Fragment cell safety limit reached.", {
+              visitedCells,
+              componentSize: component.length,
+            });
+            component.length = index;
+            remainingByPosition.clear();
+            break;
+          }
           const cell = component[index];
           [
             [0, -1],
@@ -580,7 +642,7 @@ export class PhysicsWorld {
       this.world.DestroyBody(body);
       this.bodies = this.bodies.filter((candidate) => candidate !== body);
       components.forEach((component) =>
-        this.createFragment(component, data.color, data.origin, pose),
+        this.createFragment(component, data.color, data.material || this.material, data.origin, pose),
       );
     });
     return removed;

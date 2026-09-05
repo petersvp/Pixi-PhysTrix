@@ -74,7 +74,9 @@ export class SettingsPanel {
     this.draw();
     this.onKeyDown = (event) => this.handleKey(event);
     addEventListener("keydown", this.onKeyDown);
-    this.gamepadTick = () => this.captureGamepad();
+    this.gamepadTick = () => {
+      if (!this.destroyed) this.captureGamepad();
+    };
     app.ticker.add(this.gamepadTick);
   }
   text(value, x, y, size = 16, color = COLORS.HUD_VALUE) {
@@ -438,6 +440,7 @@ export class SettingsPanel {
     this.root.visible = false;
   }
   destroy() {
+    this.destroyed = true;
     removeEventListener("keydown", this.onKeyDown);
     this.app.ticker.remove(this.gamepadTick);
     this.root.destroy({ children: true });

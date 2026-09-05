@@ -25,8 +25,9 @@ export class Polyomino {
     this.definition = resolvePolyominoDefinition(source);
     this.type = this.definition.id;
     this.order = this.definition.order;
-    this.color = this.definition.color;
+    this.color = source.color ?? this.definition.color;
     this.matrix = clone(this.definition.matrix);
+    this.cellColors = source.cellColors ? clone(source.cellColors) : null;
     const matrixWidth = Math.max(...this.matrix.map((row) => row.length));
     this.x = (COLS - matrixWidth) >> 1;
     this.y = -2;
@@ -34,15 +35,33 @@ export class Polyomino {
     this.lastAction = "spawn";
     this.lastKick = 0;
   }
-  cells(matrix = this.matrix, x = this.x, y = this.y) {
+  cells(matrix = this.matrix, x = this.x, y = this.y, colors = this.cellColors) {
     const cells = [];
     matrix.forEach((r, py) =>
-      r.forEach((v, px) => v && cells.push({ x: x + px, y: y + py })),
+      r.forEach((v, px) =>
+        v &&
+        cells.push({
+          x: x + px,
+          y: y + py,
+          color: colors?.[py]?.[px],
+        }),
+      ),
     );
     return cells;
   }
   visualCenter() {
     return polyominoCentroid(this.cells());
+  }
+  averageColor() {
+    const colors = this.cells().map((cell) => cell.color ?? this.color);
+    const channels = colors.reduce(
+      (sum, color) => [sum[0] + ((color >> 16) & 0xff), sum[1] + ((color >> 8) & 0xff), sum[2] + (color & 0xff)],
+      [0, 0, 0],
+    );
+    const count = Math.max(1, colors.length);
+    return (Math.round(channels[0] / count) << 16) |
+      (Math.round(channels[1] / count) << 8) |
+      Math.round(channels[2] / count);
   }
   static rotateMatrix(m, cw = true) {
     const t = m[0].map((_, x) => m.map((r) => r[x]));
@@ -81,8 +100,7 @@ export class Polyomino {
   }
   move(board, dx, dy) {
     const cells = this.cells(this.matrix, this.x + dx, this.y + dy);
-    if (!board.isValid(cells) || !board.raycastClear(this.cells(), cells))
-      return false;
+    if (!board.isValid(cells) || !board.raycastClear(this.cells(), cells)) return false;
     this.x += dx;
     this.y += dy;
     this.lastAction = "move";
@@ -96,6 +114,7 @@ export class Polyomino {
         x: this.x,
         y: this.y,
         facing: this.facing,
+        cellColors: this.cellColors,
       };
       if (this.rotate(board, 1) && this.rotate(board, 1)) return true;
       Object.assign(this, s);
@@ -103,6 +122,9 @@ export class Polyomino {
     }
     const to = (this.facing + (d > 0 ? 1 : 3)) % 4,
       next = Polyomino.rotateMatrix(this.matrix, d > 0),
+      nextColors = this.cellColors
+        ? Polyomino.rotateMatrix(this.cellColors, d > 0)
+        : null,
       kicks = rotationKicksFor(this.definition, this.facing, to);
     const anchor =
       this.order === 4
@@ -110,9 +132,10 @@ export class Polyomino {
         : Polyomino.boundingBoxAnchor(this.matrix, next, this.x, this.y);
     for (let i = 0; i < kicks.length; i++) {
       const [dx, dy] = kicks[i],
-        cells = this.cells(next, anchor.x + dx, anchor.y + dy);
+        cells = this.cells(next, anchor.x + dx, anchor.y + dy, nextColors);
       if (board.isValid(cells)) {
         this.matrix = next;
+        this.cellColors = nextColors;
         this.x = anchor.x + dx;
         this.y = anchor.y + dy;
         this.facing = to;

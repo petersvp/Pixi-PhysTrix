@@ -1157,11 +1157,31 @@ export class SinglePlayerHud {
     if (this.calloutLife <= 0) this.perfectClearCallout = false;
   }
 
-  update({ score, lines, level, elapsedMs = 0, hold, next }) {
+  update({
+    score,
+    lines,
+    level,
+    elapsedMs = 0,
+    hold,
+    next,
+    goals = {},
+    showHold = true,
+    showQueue = true,
+  }) {
+    this.holdPanel.visible = showHold;
+    this.holdPanel.eventMode = showHold ? "static" : "none";
+    this.nextPanel.visible = showQueue;
     const totalSeconds = Math.floor(elapsedMs / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = String(totalSeconds % 60).padStart(2, "0");
-    [score, lines, level, `${minutes}:${seconds}`].forEach((value, index) => {
+    const reach = (value, enabled, target) =>
+      enabled ? `${value}/${target}` : value;
+    [
+      reach(score, goals.score, goals.scoreTarget),
+      reach(lines, goals.chains, goals.chainTarget),
+      reach(level, goals.speed, goals.speedTarget),
+      `${minutes}:${seconds}`,
+    ].forEach((value, index) => {
       this.statsRows[index].value.text = String(value);
     });
     this.holdRenderer.draw(

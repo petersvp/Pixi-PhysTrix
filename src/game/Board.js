@@ -69,12 +69,19 @@ export class Board {
   }
   lock(piece) {
     const cells = piece.cells();
+    if (cells.length > ROWS * COLS) {
+      console.error("[Board] Refusing oversized locked polyomino.", {
+        cells: cells.length,
+        maximum: ROWS * COLS,
+      });
+      return false;
+    }
     const occupied = new Set(cells.map(({ x, y }) => `${x},${y}`));
     const has = (x, y) => occupied.has(`${x},${y}`);
     cells.forEach(({ x, y }) => {
       if (y < ROWS)
         this.set(x, y, {
-          color: piece.color,
+          color: cell.color ?? piece.color,
           pieceId: piece.id,
           // These source links are immutable. Rendering must not infer new
           // connectivity merely because a line clear moves the cells around.
@@ -105,6 +112,27 @@ export class Board {
       }),
     );
     return rows;
+  }
+  markCells(cells) {
+    cells.forEach(({ x, y }) => {
+      const tile = this.get(x, y);
+      if (tile) tile.marked = true;
+    });
+    return cells;
+  }
+  resolveMarkedCells() {
+    const clearedTiles = [];
+    const survivors = [];
+    this.forEachCell((tile, x, y) => {
+      const entry = { tile, x, y };
+      if (tile.marked) clearedTiles.push({ ...tile, x, y });
+      else survivors.push(entry);
+    });
+    this.reset();
+    this.lastClearedTiles = clearedTiles;
+    if (!clearedTiles.length) return 0;
+    this.applyStickyGravity(survivors, true);
+    return clearedTiles.length;
   }
   clearLines(stickyGravity = CLASSIC_STICKY_GRAVITY) {
     return this.clearRows(this.findFullLines(), stickyGravity, false);
@@ -184,6 +212,8 @@ export class Board {
       [-1, 0, "left", "right"],
     ];
     const topFirst = [...cells.values()].sort((a, b) => a.y - b.y || a.x - b.x);
+    const maxResolveCells = ROWS * COLS;
+    let visitedCells = 0;
     topFirst.forEach((first) => {
       const firstKey = `${first.x},${first.y}`;
       if (visited.has(firstKey)) return;
@@ -191,6 +221,14 @@ export class Board {
       const pending = [first];
       visited.add(firstKey);
       while (pending.length) {
+        if (++visitedCells > maxResolveCells) {
+          console.error("[Board] Sticky-gravity flood-fill safety limit reached.", {
+            visitedCells,
+            pendingCells: pending.length,
+          });
+          pending.length = 0;
+          break;
+        }
         const entry = pending.pop();
         group.push(entry);
         directions.forEach(([dx, dy, side, opposite]) => {
@@ -247,7 +285,18 @@ export class Board {
       const stacked = new Set();
       const islands = [];
       let nextIndex = 0;
+      let visitCount = 0;
+      let graphLimitReached = false;
       const visit = (index) => {
+        if (graphLimitReached) return;
+        if (++visitCount > maxResolveCells) {
+          console.error("[Board] Sticky-gravity graph safety limit reached.", {
+            visitCount,
+            groupCount: fallingGroups.length,
+          });
+          graphLimitReached = true;
+          return;
+        }
         indexAt[index] = lowAt[index] = nextIndex++;
         stack.push(index);
         stacked.add(index);
@@ -262,8 +311,22 @@ export class Board {
         if (lowAt[index] !== indexAt[index]) return;
         const component = [];
         let member;
+        let memberCount = 0;
         do {
+          if (++memberCount > maxResolveCells) {
+            console.error("[Board] Sticky-gravity Tarjan stack safety limit reached.", {
+              memberCount,
+              stackSize: stack.length,
+            });
+            graphLimitReached = true;
+            break;
+          }
           member = stack.pop();
+          if (member === undefined) {
+            console.error("[Board] Sticky-gravity Tarjan stack underflow.");
+            graphLimitReached = true;
+            break;
+          }
           stacked.delete(member);
           component.push(member);
         } while (member !== index);
@@ -280,7 +343,16 @@ export class Board {
     // Rebuild floating islands after every sweep. Newly touching fragments can
     // then descend together instead of falsely supporting one another midair.
     let movedInSweep = true;
+    let sweepCount = 0;
+    const maxSweepCount = ROWS * COLS + 1;
     while (movedInSweep) {
+      if (++sweepCount > maxSweepCount) {
+        console.error("[Board] Sticky-gravity safety limit reached.", {
+          sweepCount,
+          fallingGroupCount: fallingGroups.length,
+        });
+        break;
+      }
       movedInSweep = false;
       const islands = floatingIslands();
       const occupied = new Set(
@@ -299,8 +371,13 @@ export class Board {
             const nextY = y + fall + 1;
             return nextY < ROWS && !occupied.has(`${x},${nextY}`);
           })
-        )
+        ) {
+          if (fall >= ROWS) {
+            console.error("[Board] Sticky-gravity fall safety limit reached.", { fall, islandSize: island.length });
+            break;
+          }
           fall += 1;
+        }
         if (fall) {
           island.forEach((cell) => {
             cell.y += fall;

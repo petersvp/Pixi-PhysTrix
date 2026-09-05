@@ -15,6 +15,7 @@ export class Session {
     skinBaseUrl = "minoskins",
     startLevel = 0,
     trash = 0,
+    roomRules = null,
   }) {
     this.playerMode = playerMode;
     this.gameplayMode = gameplayMode;
@@ -24,5 +25,6 @@ export class Session {
     this.skinBaseUrl = skinBaseUrl;
     this.startLevel = startLevel;
     this.trash = trash;
+    this.roomRules = roomRules;
   }
 }

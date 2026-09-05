@@ -8,6 +8,14 @@
 
 export function projectGhost(piece, board) {
   let y = piece.y;
-  while (board.isValid(piece.cells(piece.matrix, piece.x, y + 1))) y++;
+  let steps = 0;
+  const maxSteps = 128;
+  while (board.isValid(piece.cells(piece.matrix, piece.x, y + 1))) {
+    if (++steps > maxSteps) {
+      console.error("[Game] Ghost projection safety limit reached.", { x: piece.x, y, steps });
+      break;
+    }
+    y++;
+  }
   return piece.cells(piece.matrix, piece.x, y);
 }

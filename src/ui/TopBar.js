@@ -24,7 +24,9 @@ export class TopBar {
     this.pauseButton = this.createButton("pause", () => this.onPause?.());
     this.settingsButton = this.createButton("settings", () => this.onSettings?.());
     this.root.addChild(this.pauseButton, this.settingsButton);
-    this.tick = () => this.update();
+    this.tick = () => {
+      if (!this.destroyed) this.update();
+    };
     app.ticker.add(this.tick);
     this.update(true);
   }
@@ -89,6 +91,7 @@ export class TopBar {
   }
 
   destroy() {
+    this.destroyed = true;
     this.app.ticker.remove(this.tick);
     this.root.destroy({ children: true });
   }

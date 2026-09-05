@@ -14,6 +14,9 @@ import {
   AMBIENT_POLYOMINO_MAX_SPEED,
   AMBIENT_POLYOMINO_MIN_SPEED,
 } from "../config/uiConstants.js";
+import { safeTickerDelta } from "./TickerSafety.js";
+
+const MAX_AMBIENT_POLYOMINO_COUNT = 256;
 
 export class AmbientBackground {
   constructor(app) {
@@ -24,7 +27,9 @@ export class AmbientBackground {
     this.root.zIndex = -100;
     this.entries = [];
     this.create();
-    this.update = () => this.tick(app.ticker.deltaMS);
+    this.update = () => {
+      if (!this.destroyed) this.tick(app.ticker.deltaMS);
+    };
     app.ticker.add(this.update);
   }
 
@@ -34,7 +39,16 @@ export class AmbientBackground {
   }
 
   create() {
-    for (let index = 0; index < AMBIENT_POLYOMINO_COUNT; index++) {
+    const count = Math.min(
+      MAX_AMBIENT_POLYOMINO_COUNT,
+      Math.max(0, Math.floor(Number(AMBIENT_POLYOMINO_COUNT) || 0)),
+    );
+    if (count !== AMBIENT_POLYOMINO_COUNT)
+      console.error("[Ambient] Polyomino count was capped.", {
+        count: AMBIENT_POLYOMINO_COUNT,
+        safeCount: count,
+      });
+    for (let index = 0; index < count; index++) {
       const node = new PIXI.Container();
       // Cycle deterministic decorative samples through triominoes to
       // octominoes. They use the actual game definition catalog, not a
@@ -100,6 +114,8 @@ export class AmbientBackground {
   }
 
   tick(deltaMS) {
+    deltaMS = safeTickerDelta(deltaMS, "AmbientBackground.tick");
+    if (deltaMS === null) return;
     const seconds = deltaMS / 1000;
     const width = this.app.screen.width;
     const height = this.app.screen.height;
@@ -120,6 +136,7 @@ export class AmbientBackground {
   }
 
   destroy() {
+    this.destroyed = true;
     this.app.ticker.remove(this.update);
     this.root.destroy({ children: true });
   }

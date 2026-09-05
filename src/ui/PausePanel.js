@@ -28,7 +28,9 @@ export class PausePanel {
     this.root.zIndex = 1000;
     app.stage.addChild(this.root);
     this.draw();
-    this.tick = () => this.pollController();
+    this.tick = () => {
+      if (!this.destroyed) this.pollController();
+    };
     app.ticker.add(this.tick);
     this.onKeyDown = (event) => this.handleKeyboard(event);
     addEventListener("keydown", this.onKeyDown);
@@ -216,6 +218,7 @@ export class PausePanel {
     this.root.visible = false;
   }
   destroy() {
+    this.destroyed = true;
     removeEventListener("keydown", this.onKeyDown);
     this.app.ticker.remove(this.tick);
     this.root.destroy({ children: true });

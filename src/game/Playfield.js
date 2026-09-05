@@ -125,8 +125,8 @@ export class Playfield {
     this.punch = { scale: 0, y: 0, rotation: 0, life: 0 };
   }
 
-  createPhysicsWorld(api, preset) {
-    this.physics = new PhysicsWorld(api, preset);
+  createPhysicsWorld(api, preset, config) {
+    this.physics = new PhysicsWorld(api, preset, config);
     this.physicsLayer = new PIXI.Container();
     this.physicsLayer.label = "physicsMinoLayer";
     this.gridRoot.addChildAt(

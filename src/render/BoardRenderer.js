@@ -37,6 +37,8 @@ const lightenColor = (color, amount) => {
   );
 };
 
+const MAX_GLOW_CURVE_SEGMENTS = 64;
+
 export class BoardRenderer {
   constructor(
     backgroundGraphics,
@@ -93,10 +95,20 @@ export class BoardRenderer {
   }
 
   appendArc(points, centerX, centerY, radius, startAngle, endAngle) {
-    for (let index = 1; index <= PLAYFIELD_GLOW_CURVE_SEGMENTS; index++) {
+    const configuredSegments = Number(PLAYFIELD_GLOW_CURVE_SEGMENTS);
+    const segments = Math.min(
+      MAX_GLOW_CURVE_SEGMENTS,
+      Math.max(0, Math.floor(configuredSegments) || 0),
+    );
+    if (segments !== configuredSegments)
+      console.error("[BoardRenderer] Invalid glow curve segment count.", {
+        configuredSegments,
+        segments,
+      });
+    for (let index = 1; index <= segments; index++) {
       const angle =
         startAngle +
-        ((endAngle - startAngle) * index) / PLAYFIELD_GLOW_CURVE_SEGMENTS;
+        ((endAngle - startAngle) * index) / segments;
       points.push(
         new PIXI.Point(
           centerX + Math.cos(angle) * radius,
@@ -330,6 +342,7 @@ export class BoardRenderer {
         group.cells.push({
           x,
           y,
+          color: tile.color,
           renderY: tile.renderY,
           visualLinks: tile.visualLinks,
           broken: tile.broken,
@@ -401,12 +414,12 @@ export class BoardRenderer {
       // ordinary Pixi outline and hide the landing ghost altogether.
       drawGhostOutline(
         piece.cells().filter((cell) => cell.y >= 0),
-        piece.color,
+        piece.averageColor(),
       );
       return;
     }
     // Overlay ghost and active piece outlines/tiles after the board is already drawn.
-    drawGhostOutline(ghost || [], piece.color);
+    drawGhostOutline(ghost || [], piece.averageColor());
     drawConnected(this.activeLayer, piece.cells(), piece.color, 1);
   }
 }

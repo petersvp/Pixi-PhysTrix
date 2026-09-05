@@ -42,6 +42,7 @@ import {
 import { MinoQuadRenderer } from "../render/MinoQuadRenderer.js";
 import { loadSkin } from "../render/ShaderSettings.js";
 import { AdvancedLineRenderer } from "../render/AdvancedLineRenderer.js";
+import { safeTickerDelta } from "../app/TickerSafety.js";
 import { UIMenuItem } from "../ui/UIMenuItem.js";
 import { UIMenu } from "../ui/UIMenu.js";
 import { UIMenuStack } from "../ui/UIMenuStack.js";
@@ -85,8 +86,12 @@ export class StartMenu {
     this.root.addChild(this.content);
     this.resize = () => this.layout();
     this.keydown = (event) => this.handleKey(event);
-    this.pollGamepad = () => this.handleGamepad();
-    this.tick = () => this.update(this.app.ticker.deltaMS);
+    this.pollGamepad = () => {
+      if (!this.destroyed) this.handleGamepad();
+    };
+    this.tick = () => {
+      if (!this.destroyed) this.update(this.app.ticker.deltaMS);
+    };
     addEventListener("resize", this.resize);
     addEventListener("keydown", this.keydown);
     app.ticker.add(this.pollGamepad);
@@ -877,6 +882,8 @@ export class StartMenu {
     });
   }
   update(deltaMS) {
+    deltaMS = safeTickerDelta(deltaMS, "StartMenu.update");
+    if (deltaMS === null) return;
     if (this.leaving) {
       this.exitElapsed += deltaMS;
       const amount = Math.min(1, this.exitElapsed / START_MENU_SECTION_OUT_DURATION_MS);

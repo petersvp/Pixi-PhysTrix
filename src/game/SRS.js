@@ -6,6 +6,8 @@
  * Modern 180-degree rotation is implemented as two atomic SRS turns.
  */
 
+import { COLS } from "../config/gameplayConstants.js";
+
 export const JLSTZ_KICKS = Object.freeze({
   "0>1": [
     [0, 0],
@@ -126,7 +128,7 @@ export const I_KICKS = Object.freeze({
 // Guideline tables above remain exact for tetrominoes. Higher orders have no
 // official SRS data, so build a deterministic kick search from piece order.
 export const generatedPolyominoKicks = (order) => {
-  const reach = Math.max(1, Math.ceil((order - 3) / 2));
+  const reach = Math.min(COLS, Math.max(1, Math.ceil((order - 3) / 2)));
   const kicks = [[0, 0]];
   for (let distance = 1; distance <= reach; distance++) {
     kicks.push([-distance, 0], [distance, 0], [-distance, -1], [distance, -1]);

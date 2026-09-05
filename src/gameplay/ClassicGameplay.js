@@ -16,7 +16,7 @@ import {
   guidelineScore,
   guidelineSpinScore,
 } from "../game/Scoring.js";
-import { chainName } from "../game/ChainSystem.js";
+import { chainName, findColorChainCells } from "../game/ChainSystem.js";
 import {
   CLASSIC_VANISH_DURATION_MS,
   CELL,
@@ -79,9 +79,12 @@ export class ClassicGameplay extends GameplayContract {
     this.scan(game, true);
   }
   scan(game, initial = false) {
-    const rows = game.board.findFullLines();
-    if (rows.length) {
-      game.board.markLines(rows);
+    const chainRules = game.session?.roomRules?.chain || {};
+    const colorCells = findColorChainCells(game.board, chainRules);
+    const rows = colorCells.length ? [] : game.board.findFullLines();
+    if (rows.length || colorCells.length) {
+      if (colorCells.length) game.board.markCells(colorCells);
+      else game.board.markLines(rows);
       // Keep the original scan rows while the marked cells are visible. Once
       // they vanish, board compaction has already changed their coordinates.
       this.resolve = {
@@ -89,6 +92,7 @@ export class ClassicGameplay extends GameplayContract {
         remaining: CLASSIC_VANISH_DURATION_MS,
         initial,
         rows,
+        colorCells,
       };
       return;
     }
@@ -136,7 +140,13 @@ export class ClassicGameplay extends GameplayContract {
       guidelineComboScore(game.classicCombo, game.level) +
       (allClear ? guidelineAllClearScore(lines, game.level) : 0);
     game.score += pointsAwarded;
-    game.level = game.startLevel + ((game.lines / 10) | 0) + 1;
+    game.updateSpeed();
+    if (game.classicCombo >= (Number(game.session?.roomRules?.win?.comboLength) || Infinity))
+      game.goalProgress.combos += 1;
+    if (lines >= (Number(game.session?.roomRules?.win?.chainLength) || Infinity))
+      game.goalProgress.chains += 1;
+    if (spin === "MEGASPIN") game.goalProgress.megaspins += 1;
+    if (allClear) game.goalProgress.perfectClears += 1;
     game.sound.clear(lines);
     const clearName = `${chainName(lines)}!`;
     const primary = trashUp
@@ -184,7 +194,12 @@ export class ClassicGameplay extends GameplayContract {
     if (this.resolve.phase === "mark") {
       this.resolve.remaining -= ms;
       if (this.resolve.remaining > 0) return;
-      const lines = game.board.resolveMarkedLines();
+      const cleared = this.resolve.colorCells.length
+        ? game.board.resolveMarkedCells()
+        : game.board.resolveMarkedLines();
+      const lines = this.resolve.colorCells.length
+        ? Math.max(1, Math.floor(cleared / Math.max(2, Number(game.session?.roomRules?.chain?.colorLineLength) || Number(game.session?.roomRules?.chain?.clusterSize) || 2)))
+        : cleared;
       game.board.lastClearedTiles.forEach((tile) =>
         game.playfield.effects.burst(
           tile.x,

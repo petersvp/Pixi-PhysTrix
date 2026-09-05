@@ -30,6 +30,7 @@ import {
   GAME_VIEWPORT_HEIGHT,
   GAME_VIEWPORT_WIDTH,
 } from "../config/uiConstants.js";
+import { safeTickerDelta } from "./TickerSafety.js";
 
 export class Application {
   constructor(root) {
@@ -196,7 +197,17 @@ export class Application {
     };
     applyTransform(0.92);
     const update = () => {
-      elapsed += this.shell.app.ticker.deltaMS;
+      const deltaMS = safeTickerDelta(
+        this.shell.app.ticker.deltaMS,
+        "Application.animateSceneIn",
+      );
+      if (deltaMS === null) {
+        this.shell.app.ticker.remove(update);
+        if (this.sceneTransitionUpdate === update)
+          this.sceneTransitionUpdate = null;
+        return;
+      }
+      elapsed += deltaMS;
       const amount = Math.min(1, elapsed / 420);
       const eased = 1 - Math.pow(1 - amount, 3);
       root.alpha = eased;

@@ -8,6 +8,8 @@
  */
 
 export class AdvancedLineRenderer {
+  static MAX_PATH_POINTS = 2048;
+  static MAX_CURVE_SEGMENTS = 64;
   static whiteTexture = null;
   static halfParticleTextures = new Map();
   static fullParticleTextures = new Map();
@@ -87,9 +89,28 @@ export class AdvancedLineRenderer {
   }
 
   static appendQuadratic(points, control, end, segments = 6) {
+    const count = Math.min(
+      AdvancedLineRenderer.MAX_CURVE_SEGMENTS,
+      Math.max(1, Math.floor(Number(segments) || 0)),
+    );
     const start = points[points.length - 1];
-    for (let index = 1; index <= segments; index++) {
-      const t = index / segments;
+    if (
+      !start ||
+      ![start, control, end].every(
+        (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+      )
+    ) {
+      console.error("[AdvancedLineRenderer] Ignoring invalid quadratic path.");
+      return;
+    }
+    const available = AdvancedLineRenderer.MAX_PATH_POINTS - points.length;
+    if (available <= 0) {
+      console.error("[AdvancedLineRenderer] Path point safety limit reached.");
+      return;
+    }
+    const safeCount = Math.min(count, available);
+    for (let index = 1; index <= safeCount; index++) {
+      const t = index / safeCount;
       const inverse = 1 - t;
       points.push(
         new PIXI.Point(
@@ -139,6 +160,20 @@ export class AdvancedLineRenderer {
         ? points.slice(0, -1)
         : points;
     if (path.length < 2 || (this.closed && path.length < 3)) return null;
+    if (path.length > AdvancedLineRenderer.MAX_PATH_POINTS) {
+      console.error("[AdvancedLineRenderer] Refusing oversized path.", {
+        pointCount: path.length,
+      });
+      return null;
+    }
+    if (
+      !path.every(
+        (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+      )
+    ) {
+      console.error("[AdvancedLineRenderer] Refusing non-finite path point.");
+      return null;
+    }
     const vertices = new Float32Array(path.length * 4);
     const uvs = new Float32Array(path.length * 4);
     const segmentCount = this.closed ? path.length : path.length - 1;

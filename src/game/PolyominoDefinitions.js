@@ -11,6 +11,7 @@ import {
   PENTOMINO_COLORS,
   POLYOMINO_COLORS,
 } from "../config/colors.js";
+import { COLS } from "../config/gameplayConstants.js";
 export const SHAPES = Object.freeze({
   I: [
     [0, 0, 0, 0],
@@ -84,6 +85,7 @@ const toMatrix = (cells) => {
   const width = Math.max(...normalized.map(({ x }) => x)) + 1;
   const height = Math.max(...normalized.map(({ y }) => y)) + 1;
   const size = Math.max(width, height);
+  if (size > COLS) return null;
   const matrix = Array.from({ length: size }, () => Array(size).fill(0));
   normalized.forEach(({ x, y }) => {
     matrix[y][x] = 1;
@@ -118,6 +120,7 @@ const matrixBounds = (matrix) => {
 // Spawn all generated n-ominoes in their widest valid rotation. This is data
 // normalization, not a preview-only transform, so play and HUD always agree.
 const horizontalSpawnMatrix = (matrix) => {
+  if (!matrix) return null;
   let best = matrix;
   let candidate = matrix;
   for (let turn = 0; turn < 4; turn++) {
@@ -145,7 +148,18 @@ const randomConnectedCells = (order, random) => {
   const cells = [{ x: 0, y: 0 }];
   const occupied = new Set(["0,0"]);
   const edges = CARDINAL_DIRECTIONS.map(([x, y]) => ({ x, y }));
+  let attempts = 0;
+  const maxAttempts = Math.max(64, order * 16);
   while (cells.length < order) {
+    if (++attempts > maxAttempts || !edges.length) {
+      console.error("[Polyomino] Connected-shape generation safety limit reached.", {
+        order,
+        cells: cells.length,
+        edges: edges.length,
+        attempts,
+      });
+      return null;
+    }
     const index = Math.floor(random() * edges.length);
     const candidate = edges.splice(index, 1)[0];
     const key = `${candidate.x},${candidate.y}`;
@@ -178,7 +192,9 @@ const sampledCatalogCells = (order) => {
     attempt += 1
   ) {
     const normalized = randomConnectedCells(order, random);
-    result.set(canonicalKey(normalized), normalized);
+    if (!normalized) continue;
+    if (Math.max(...normalized.map(({ x }) => x), ...normalized.map(({ y }) => y)) + 1 <= COLS)
+      result.set(canonicalKey(normalized), normalized);
   }
   return [...result.values()];
 };
@@ -187,6 +203,13 @@ const sampledCatalogCells = (order) => {
 // polyominoes once. The room-rule orders are deliberately small (3-6).
 const generateCatalog = (order) => {
   if (catalogCache.has(order)) return catalogCache.get(order);
+  if (order > COLS * COLS) {
+    console.warn("[Polyomino] Refused catalog larger than the board can contain.", {
+      order,
+      boardWidth: COLS,
+    });
+    return Object.freeze([]);
+  }
   let shapes = [[{ x: 0, y: 0 }]];
   if (order > MAX_ENUMERATED_ORDER) shapes = sampledCatalogCells(order);
   else for (let size = 1; size < order; size++) {
@@ -206,18 +229,21 @@ const generateCatalog = (order) => {
   }
   const catalog = shapes
     .sort((a, b) => canonicalKey(a).localeCompare(canonicalKey(b)))
-    .map((cells, index) =>
-      Object.freeze({
+    .map((cells, index) => {
+      const matrix = horizontalSpawnMatrix(toMatrix(cells));
+      if (!matrix) return null;
+      return Object.freeze({
         id: `P${order}-${index + 1}`,
         order,
-        matrix: horizontalSpawnMatrix(toMatrix(cells)),
+        matrix,
         color:
           order >= 6
             ? HIGH_ORDER_POLYOMINO_COLOR
             : GENERATED_COLORS[index % GENERATED_COLORS.length],
         spinLabel: order === 5 ? "P-SPIN" : `${order}-SPIN`,
-      }),
-    );
+      });
+    })
+    .filter(Boolean);
   catalogCache.set(order, Object.freeze(catalog));
   return catalogCache.get(order);
 };
@@ -411,16 +437,30 @@ export const definitionsForOrder = (order) =>
 // of sampling the small fallback catalog used by ALL entries.
 export const randomDefinitionForOrder = (order, random = Math.random) => {
   const numericOrder = Math.max(1, Math.floor(Number(order) || 1));
+  if (numericOrder > COLS * COLS) {
+    console.warn("[Polyomino] Refused generated order larger than the board can contain.", {
+      order: numericOrder,
+      boardWidth: COLS,
+    });
+    return null;
+  }
   if (numericOrder <= MAX_ENUMERATED_ORDER) {
     const catalog = definitionsForOrder(numericOrder);
     return catalog[Math.floor(random() * catalog.length)];
   }
+  const cells = randomConnectedCells(numericOrder, random);
+  const matrix = horizontalSpawnMatrix(cells && toMatrix(cells));
+  if (!matrix) {
+    console.warn("[Polyomino] Refused generated shape wider or taller than the board.", {
+      order: numericOrder,
+      boardWidth: COLS,
+    });
+    return null;
+  }
   return Object.freeze({
     id: `P${numericOrder}-RANDOM`,
     order: numericOrder,
-    matrix: horizontalSpawnMatrix(
-      toMatrix(randomConnectedCells(numericOrder, random)),
-    ),
+    matrix,
     color: HIGH_ORDER_POLYOMINO_COLOR,
     spinLabel: `${numericOrder}-SPIN`,
   });

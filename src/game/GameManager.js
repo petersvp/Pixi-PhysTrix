@@ -39,10 +39,14 @@ import { Playfield } from "./Playfield.js";
 import { TouchController } from "./TouchController.js";
 import { TrashSystem } from "./TrashSystem.js";
 import { GameStatistics } from "./GameStatistics.js";
+import { safeTickerDelta } from "../app/TickerSafety.js";
 
 // The reflection shader path remains authored and available, but its separate
 // mino-only render-texture capture pass is deliberately disabled for now.
 const ENABLE_REFLECTION_CAPTURE = false;
+const MAX_GRAVITY_CATCH_UP_STEPS = 512;
+const MAX_DIRECT_MOVE_STEPS = COLS + 2;
+const MAX_HARD_DROP_STEPS = ROWS + 8;
 
 /** Shared Guideline controller; gameplay modes provide mode-specific world behavior. */
 export class GameManager {
@@ -58,7 +62,8 @@ export class GameManager {
     this.session = session;
     this.settings = loadPersistentSettings();
     this.board = new Board();
-    this.queue = new PieceQueue(Math.random, this.session?.polyominoPreset);
+    this.queue = new PieceQueue(Math.random, this.session?.polyominoPreset, this.session?.roomRules);
+    this.holdEnabled = this.session?.roomRules?.mutators?.enableHold !== false;
     this.input = new InputManager();
     this.sound = new SoundEngine(this.settings);
     this.state = GameState.START;
@@ -79,6 +84,7 @@ export class GameManager {
     this.lockTimer = 0;
     this.lockResets = 0;
     this.classicCombo = 0;
+    this.goalProgress = { combos: 0, chains: 0, megaspins: 0, perfectClears: 0 };
     this.id = 1;
     // Sessions always run inside AppShell's persistent v8 Application.
     // Creating a second renderer here would violate scene routing and can
@@ -103,7 +109,7 @@ export class GameManager {
     this.playfield.loadSkin(this.session?.skin);
     this.playfield.setHoldAction(() => this.holdPiece());
     this.playfield.setRestartAction(() => this.restartAfterGameOver());
-    this.trash = new TrashSystem(this.session?.trash);
+    this.trash = new TrashSystem(this.session?.trash, Math.random, this.session?.roomRules);
     this.gameplay.attach(this);
     this.reflectionCapture = ENABLE_REFLECTION_CAPTURE
       ? new ReflectionCapture(
@@ -155,9 +161,10 @@ export class GameManager {
   start() {
     this.board.reset();
     this.gameplay.reset(this);
-    this.trash = new TrashSystem(this.session?.trash);
+    this.trash = new TrashSystem(this.session?.trash, Math.random, this.session?.roomRules);
     this.gameplay.spawnTrash?.(this, this.trash);
-    this.queue = new PieceQueue(Math.random, this.session?.polyominoPreset);
+    this.queue = new PieceQueue(Math.random, this.session?.polyominoPreset, this.session?.roomRules);
+    this.holdEnabled = this.session?.roomRules?.mutators?.enableHold !== false;
     this.score = this.lines = 0;
     this.elapsedMs = 0;
     this.gameOverInputRemaining = 0;
@@ -170,7 +177,7 @@ export class GameManager {
       : 0;
     this.level = this.startLevel + 1;
     this.hold = null;
-    this.canHold = true;
+    this.canHold = this.holdEnabled;
     this.horizontalDirection = 0;
     this.horizontalRepeat = 0;
     this.horizontalInitial = true;
@@ -181,6 +188,7 @@ export class GameManager {
     this.lockTimer = 0;
     this.lockResets = 0;
     this.classicCombo = 0;
+    this.goalProgress = { combos: 0, chains: 0, megaspins: 0, perfectClears: 0 };
     this.playfield.hud.resetCallout();
     this.state = GameState.PLAYING;
     this.onGameStarted?.({ game: this });
@@ -200,7 +208,7 @@ export class GameManager {
     // A presentation/networking consumer may mirror the newly controlled
     // polyomino without owning gameplay timing or input.
     this.onPolyominoSpawned?.(this, this.active);
-    this.canHold = true;
+    this.canHold = this.holdEnabled;
     this.grounded = false;
     this.lockTimer = 0;
     this.lockResets = 0;
@@ -265,8 +273,15 @@ export class GameManager {
     return true;
   }
   holdPiece() {
-    if (!this.canAcceptDirectControl() || !this.canHold) return false;
-    const outgoing = this.active.definition;
+    if (!this.holdEnabled || !this.canAcceptDirectControl() || !this.canHold)
+      return false;
+    // The queued definition owns generated palette colours. Preserve those
+    // authored values through Pocket instead of falling back to catalog data.
+    const outgoing = {
+      ...this.active.definition,
+      color: this.active.color,
+      cellColors: this.active.cellColors,
+    };
     if (this.hold) {
       const incoming = this.hold;
       this.hold = outgoing;
@@ -275,7 +290,7 @@ export class GameManager {
       this.hold = outgoing;
       this.spawn();
     }
-    this.canHold = false;
+    this.canHold = Boolean(this.session?.roomRules?.mutators?.infiniteHold);
     this.sound.hold();
     this.onHoldChanged?.({ hold: this.hold, canHold: this.canHold });
     return true;
@@ -298,7 +313,12 @@ export class GameManager {
     if (!this.canAcceptDirectControl()) return false;
     const direction = Math.sign(targetX - this.active.x);
     let moved = false;
+    let steps = 0;
     while (direction && this.active.x !== targetX) {
+      if (++steps > MAX_DIRECT_MOVE_STEPS) {
+        console.error("[Game] Horizontal move safety limit reached.", { targetX, x: this.active.x, steps });
+        break;
+      }
       if (!this.active.move(this.board, direction, 0)) break;
       moved = true;
     }
@@ -309,7 +329,14 @@ export class GameManager {
     if (!this.canAcceptDirectControl()) return false;
     this.touchSoftDropTargetY = null;
     const hardDropStart = this.active.cells();
-    while (this.active.move(this.board, 0, 1)) this.score += 2;
+    let steps = 0;
+    while (this.active.move(this.board, 0, 1)) {
+      if (++steps > MAX_HARD_DROP_STEPS) {
+        console.error("[Game] Hard-drop safety limit reached.", { y: this.active.y, steps });
+        break;
+      }
+      this.score += 2;
+    }
     this.playfield.effects.hardDropTrail(
       hardDropStart,
       this.active.cells(),
@@ -434,6 +461,40 @@ export class GameManager {
       gravityIntervalForLevel(this.level),
     );
   }
+  updateSpeed() {
+    const rules = this.session?.roomRules?.mutators;
+    if (!rules) {
+      this.level = this.startLevel + ((this.lines / 10) | 0) + 1;
+      return;
+    }
+    const byLines = rules.linesSpeedup
+      ? Math.floor(this.lines / Math.max(1, Number(rules.linesPerSpeedup) || 10))
+      : 0;
+    const bySeconds = rules.secondsSpeedup
+      ? Math.floor(this.elapsedMs / 1000 / Math.max(1, Number(rules.secondsPerSpeedup) || 20))
+      : 0;
+    this.level = this.startLevel + Math.max(byLines, bySeconds) + 1;
+  }
+  checkWinConditions() {
+    const win = this.session?.roomRules?.win;
+    if (!win || this.state !== GameState.PLAYING) return;
+    const active = [];
+    if (win.score) active.push(this.score >= Number(win.scoreTarget));
+    if (win.speed) active.push(this.level >= Number(win.speedTarget));
+    if (win.chains) active.push(this.lines >= Number(win.chainTarget));
+    if (win.combos) active.push(this.goalProgress.combos >= Number(win.comboCount));
+    if (win.chainGoals) active.push(this.goalProgress.chains >= Number(win.chainCount));
+    if (win.megaspins) active.push(this.goalProgress.megaspins >= Number(win.megaspinCount));
+    if (win.perfectClears) active.push(this.goalProgress.perfectClears >= Number(win.perfectClearCount));
+    if (win.trashWin === "reach-level") active.push(this.trash.level >= Number(win.trashLevel));
+    if (win.trashWin === "clear-bottom-line") active.push(!this.trash.boardHasTrash(this.board) && !this.physics?.hasTrash());
+    if (active.length && active.every(Boolean)) {
+      this.state = GameState.WON;
+      this.active = null;
+      this.playfield.hud.showCountdown("VICTORY!");
+      this.onGameWon?.({ score: this.score, progress: { ...this.goalProgress } });
+    }
+  }
   lockDelay() {
     // The first capped level keeps the configured delay. Each later level
     // removes a fixed amount, with a floor so input remains meaningful.
@@ -465,6 +526,11 @@ export class GameManager {
     return true;
   }
   tick(ms) {
+    ms = safeTickerDelta(ms, "GameManager.tick");
+    if (ms === null) {
+      this.input.endFrame();
+      return;
+    }
     this.input.pollGamepad();
     this.playfield.update(ms);
     this.playfield.hud.updateCallout(ms);
@@ -575,12 +641,24 @@ export class GameManager {
       this.softDropRepeat = 0;
       if (!keyboardSoftDrop) this.touchSoftDropTargetY = null;
     }
-    this.gravity += ms;
+    if (this.session?.roomRules?.mutators?.disableFalling) {
+      this.gravity = 0;
+    } else this.gravity += ms;
     const gravityInterval = this.interval();
     // Keep the unused time remainder. A delayed frame may span several
     // gravity intervals, especially at high levels, and must advance once
     // for every elapsed interval instead of silently losing fall steps.
-    while (this.gravity >= gravityInterval) {
+    let gravitySteps = 0;
+    while (!this.session?.roomRules?.mutators?.disableFalling && this.gravity >= gravityInterval) {
+      if (++gravitySteps > MAX_GRAVITY_CATCH_UP_STEPS) {
+        console.error("[Game] Gravity catch-up safety limit reached; dropping remaining gravity time.", {
+          gravity: this.gravity,
+          gravityInterval,
+          gravitySteps,
+        });
+        this.gravity = 0;
+        break;
+      }
       this.gravity -= gravityInterval;
       if (!this.active.move(this.board, 0, 1)) {
         this.gravity = 0;
@@ -594,6 +672,7 @@ export class GameManager {
       return;
     }
     this.gameplay.step(this, ms);
+    this.checkWinConditions();
     this.render();
     this.input.endFrame();
   }
@@ -612,9 +691,12 @@ export class GameManager {
       score: this.score,
       lines: this.lines,
       level: this.level,
+      goals: this.session?.roomRules?.win,
       elapsedMs: this.elapsedMs,
       hold: this.hold,
       next: this.queue.items,
+      showHold: this.holdEnabled,
+      showQueue: this.queue.targetSize > 0,
     });
     this.playfield.renderer.draw(
       this.board,
