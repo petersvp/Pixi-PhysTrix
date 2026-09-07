@@ -77,13 +77,22 @@ export class ClassicGameplay extends GameplayContract {
       piece.color,
       PLACEMENT_OUTLINE_PARTICLE_COUNT,
     );
-    game.board.lock(piece);
+    const partCount = game.board.lock(piece);
     game.active = null;
     this.pendingSpin = spin;
     this.pendingSpinOrder = piece.order;
+    // A disconnected authored shape is still scanned at its lock position.
+    // Clustered gravity starts only after that instant scan found no clear.
+    if (partCount > 1 && this.gravityType(game) === "clustered") {
+      const clearedAtLock = this.scan(game, true, { spawn: false });
+      if (clearedAtLock) return;
+      game.board.settle(true);
+      this.resolve = { phase: "fall", initialScan: false };
+      return;
+    }
     this.scan(game, true);
   }
-  scan(game, initial = false) {
+  scan(game, initial = false, { spawn = true } = {}) {
     const chainRules = game.session?.roomRules?.chain || {};
     const colorGroups = findColorChainGroups(game.board, chainRules);
     const colorCells = [
@@ -93,7 +102,9 @@ export class ClassicGameplay extends GameplayContract {
         ),
       ).values(),
     ];
-    const rows = colorCells.length ? [] : game.board.findFullLines();
+    // A colour mode owns removal exclusively; do not fall through to Lines
+    // Out simply because the current scan has no qualifying colour chain.
+    const rows = chainRules.mode === "lines-out" ? game.board.findFullLines() : [];
     if (rows.length || colorCells.length) {
       if (colorCells.length) game.board.markCells(colorCells);
       else game.board.markLines(rows);
@@ -107,14 +118,15 @@ export class ClassicGameplay extends GameplayContract {
         colorCells,
         colorGroups,
       };
-      return;
+      return true;
     }
     if (initial) {
       game.classicCombo = 0;
       this.awardSpinWithoutClear(game);
     }
     this.resolve = null;
-    game.spawn();
+    if (spawn) game.spawn();
+    return false;
   }
   awardSpinWithoutClear(game) {
     if (!this.pendingSpin) return;
@@ -250,7 +262,7 @@ export class ClassicGameplay extends GameplayContract {
       return;
     }
     if (game.board.updateFallAnimation(ms)) return;
-    this.scan(game, false);
+    this.scan(game, Boolean(this.resolve.initialScan));
   }
 
   destroy() {

@@ -112,7 +112,7 @@ export class PhysicsGameplay extends GameplayContract {
         cells: piece.cells().length,
         maximum: game.rows * game.cols,
       });
-      return null;
+      return [];
     }
     // A fresh lock closes the prior turn's spin window, whether or not this
     // newly locked polyomino itself qualifies as a spin.
@@ -122,8 +122,9 @@ export class PhysicsGameplay extends GameplayContract {
     this.awaitingPostLockScan = true;
     const cells = piece.cells().filter((cell) => cell.y >= 0);
     this.physics.destroyControlled();
-    const lockedBody = this.physics.lock(piece);
-    if (hardDrop) this.physics.beginHardDropMass(lockedBody);
+    const lockedBodies = this.physics.lock(piece) || [];
+    if (hardDrop)
+      lockedBodies.forEach((body) => this.physics.beginHardDropMass(body));
     if (emitPlacementParticles)
       game.playfield.effects.outlineBurst(
         cells,
@@ -138,19 +139,19 @@ export class PhysicsGameplay extends GameplayContract {
       this.awaitingPostLockScan = false;
     }
     if (spawn) game.spawn();
-    return lockedBody;
+    return lockedBodies;
   }
 
   release(game) {
     if (this.releasePending) return false;
     // Releasing is not a Guideline lock: it silently hands the body to the
     // simulation, without a forced line scan or placement-impact particles.
-    const releasedBody = this.lock(game, {
+    const releasedBodies = this.lock(game, {
       spawn: false,
       emitPlacementParticles: false,
       scanImmediately: false,
     });
-    this.physics.beginReleaseMass(releasedBody);
+    releasedBodies.forEach((body) => this.physics.beginReleaseMass(body));
     game.active = null;
     game.grounded = false;
     game.lockTimer = 0;

@@ -89,13 +89,38 @@ export class Board {
     }
     const occupied = new Set(cells.map(({ x, y }) => `${x},${y}`));
     const has = (x, y) => occupied.has(`${x},${y}`);
+    const cellsByPosition = new Map(
+      cells.map((cell) => [`${cell.x},${cell.y}`, cell]),
+    );
+    const componentByPosition = new Map();
+    let componentCount = 0;
+    cells.forEach((first) => {
+      const firstKey = `${first.x},${first.y}`;
+      if (componentByPosition.has(firstKey)) return;
+      const pending = [first];
+      componentByPosition.set(firstKey, componentCount);
+      for (let index = 0; index < pending.length; index += 1) {
+        const cell = pending[index];
+        [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
+          const neighbor = cellsByPosition.get(`${cell.x + dx},${cell.y + dy}`);
+          const key = neighbor && `${neighbor.x},${neighbor.y}`;
+          if (!neighbor || componentByPosition.has(key)) return;
+          componentByPosition.set(key, componentCount);
+          pending.push(neighbor);
+        });
+      }
+      componentCount += 1;
+    });
     cells.forEach((cell) => {
       const { x, y } = cell;
       if (y < this.rows)
         this.set(x, y, {
           colorIndex: Number.isInteger(cell.colorIndex) ? cell.colorIndex : -1,
           baseColor: cell.baseColor ?? piece.color,
-          pieceId: piece.id,
+          pieceId:
+            componentCount > 1
+              ? `${piece.id}:${componentByPosition.get(`${x},${y}`)}`
+              : piece.id,
           // Custom/broken polyomino topology is part of the mino data. Only
           // ordinary generated pieces need inferred links at their first lock.
           visualLinks: cell.visualLinks
@@ -118,7 +143,16 @@ export class Board {
           },
         });
     });
-    return false;
+    return componentCount;
+  }
+
+  // Disconnected authored components only need this in Clustered gravity.
+  // `animateFall` retains their source row so the renderer shows the fall.
+  settle(animateFall = false) {
+    const survivors = [];
+    this.forEachCell((tile, x, y) => survivors.push({ tile, x, y }));
+    this.reset();
+    this.applyStickyGravity(survivors, animateFall);
   }
   findFullLines() {
     return this.cells

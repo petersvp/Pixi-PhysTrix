@@ -397,8 +397,10 @@ export class PhysicsWorld {
     data.temporaryMassImpactHoldDurationMs = 0;
     body.SetUserData(data);
     this.bodies.push(body);
+    const lockedBodies = this.splitDisconnectedLockedBody(body);
+    if (lockedBodies.length > 1) return lockedBodies;
     this.onLockedPolyominoCreated?.({ body, data });
-    return body;
+    return [body];
   }
   spawnTrash(cells) {
     const {
@@ -475,6 +477,65 @@ export class PhysicsWorld {
   }
   hasPendingVanish() {
     return this.vanish.pending();
+  }
+  splitDisconnectedLockedBody(body) {
+    const data = body?.GetUserData?.();
+    if (!data?.cells?.length) return body ? [body] : [];
+    const remaining = new Map(
+      data.cells.map((cell) => [`${cell.x},${cell.y}`, cell]),
+    );
+    const components = [];
+    let inspected = 0;
+    while (remaining.size) {
+      if (components.length >= this.maxFragmentResolveCells) {
+        console.error("[Physics] Lock component safety limit reached.", {
+          componentCount: components.length,
+          remainingCells: remaining.size,
+        });
+        return [body];
+      }
+      const [firstKey, first] = remaining.entries().next().value;
+      remaining.delete(firstKey);
+      const component = [first];
+      for (let index = 0; index < component.length; index += 1) {
+        if (++inspected > this.maxFragmentResolveCells) {
+          console.error("[Physics] Lock component cell safety limit reached.", {
+            inspected,
+            componentSize: component.length,
+          });
+          return [body];
+        }
+        const cell = component[index];
+        [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
+          const key = `${cell.x + dx},${cell.y + dy}`;
+          const neighbor = remaining.get(key);
+          if (!neighbor) return;
+          remaining.delete(key);
+          component.push(neighbor);
+        });
+      }
+      components.push(component);
+    }
+    if (components.length <= 1) return [body];
+    const position = body.GetPosition();
+    const velocity = body.GetLinearVelocity();
+    const pose = {
+      position: { x: position.x, y: position.y },
+      angle: body.GetAngle(),
+      velocity: { x: velocity.x, y: velocity.y },
+      angularVelocity: body.GetAngularVelocity(),
+    };
+    this.world.DestroyBody(body);
+    this.bodies = this.bodies.filter((candidate) => candidate !== body);
+    return components.map((component) =>
+      this.createFragment(
+        component,
+        data.color,
+        data.material || this.material,
+        data.origin,
+        pose,
+      ),
+    );
   }
   createFragment(cells, color, material, origin, pose) {
     const {
