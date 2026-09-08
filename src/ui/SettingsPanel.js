@@ -353,22 +353,22 @@ export class SettingsPanel {
     event.stopImmediatePropagation();
     if (this.capture?.type === "key") {
       event.preventDefault();
-      KEYBINDS[this.capture.action] = [event.key];
+      KEYBINDS[this.capture.action] = [event.code || event.key];
       this.capture = null;
       this.draw();
       return;
     }
-    if (event.key === "Escape") {
+    if (event.code === "Escape") {
       this.cancel();
-    } else if (event.key === "ArrowUp") {
+    } else if (event.code === "ArrowUp") {
       this.menuStack.navigate("up", "keyboard");
-    } else if (event.key === "ArrowDown") {
+    } else if (event.code === "ArrowDown") {
       this.menuStack.navigate("down", "keyboard");
-    } else if (event.key === "ArrowLeft") {
+    } else if (event.code === "ArrowLeft") {
       if (!this.adjustFocusedTiming("left", "keyboard")) this.menuStack.navigate("left", "keyboard");
-    } else if (event.key === "ArrowRight") {
+    } else if (event.code === "ArrowRight") {
       if (!this.adjustFocusedTiming("right", "keyboard")) this.menuStack.navigate("right", "keyboard");
-    } else if (event.key === "Enter" || event.key === " ") {
+    } else if (event.code === "Enter" || event.code === "Space") {
       this.menuStack.trigger("keyboard");
     }
   }

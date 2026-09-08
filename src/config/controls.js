@@ -9,13 +9,13 @@ export const KEYBINDS = {
   start: ["Enter"],
   left: ["ArrowLeft"],
   right: ["ArrowRight"],
-  cw: ["ArrowUp", "x"],
-  ccw: ["z"],
-  rotate180: ["a"],
+  cw: ["ArrowUp", "KeyX"],
+  ccw: ["KeyZ"],
+  rotate180: ["KeyA"],
   softDrop: ["ArrowDown"],
-  hardDrop: [" "],
-  release: ["c", "v"],
-  hold: ["c", "Shift"],
+  hardDrop: ["Space"],
+  release: ["KeyC", "KeyV"],
+  hold: ["KeyC", "ShiftLeft", "ShiftRight"],
   // Pause is deliberately fixed: Escape on keyboard and Start on gamepad.
   pause: ["Escape"],
 };
@@ -85,10 +85,14 @@ export const controlSnapshot = () => ({
 });
 
 export function applyControlSnapshot(snapshot = {}) {
+  const legacyToCode = {
+    " ": "Space", x: "KeyX", z: "KeyZ", a: "KeyA", c: "KeyC", v: "KeyV",
+    Shift: "ShiftLeft",
+  };
   Object.entries(snapshot.keys || {}).forEach(([action, keys]) => {
     if (action === "pause") return;
     if (KEYBINDS[action] && Array.isArray(keys) && keys.length)
-      KEYBINDS[action] = keys.map(String);
+      KEYBINDS[action] = keys.map((key) => legacyToCode[String(key)] || String(key));
   });
   Object.entries(snapshot.gamepad || {}).forEach(([action, buttons]) => {
     if (action === "pause") return;

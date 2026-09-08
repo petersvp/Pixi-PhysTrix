@@ -17,10 +17,13 @@ export class InputManager {
     // previously made an RB/RT press look like a Release press.
     this.gamepadPressed = new Set();
     this.keydown = (e) => {
-      if (!this.down.has(e.key)) this.pressed.add(e.key);
-      this.down.add(e.key);
+      const key = e.code || e.key;
+      if (!this.down.has(key)) this.pressed.add(key);
+      this.down.add(key);
     };
-    this.keyup = (e) => this.down.delete(e.key);
+    this.keyup = (e) => {
+      this.down.delete(e.code || e.key);
+    };
     target.addEventListener("keydown", this.keydown);
     target.addEventListener("keyup", this.keyup);
   }
@@ -60,15 +63,11 @@ export class InputManager {
     hold("ccw", GAMEPAD_BINDS.ccw);
     hold("cw", GAMEPAD_BINDS.cw);
     hold("rotate180", GAMEPAD_BINDS.rotate180);
+    hold("left", GAMEPAD_BINDS.left);
+    hold("right", GAMEPAD_BINDS.right);
+    hold("softDrop", GAMEPAD_BINDS.softDrop);
     if (edge(GAMEPAD_BUTTON.A) || edge(GAMEPAD_BINDS.pause)) this.gamepadPressed.add("start");
     if (GAMEPAD_BINDS.hold.some(edge)) this.gamepadPressed.add("hold");
-    if (pad.buttons[GAMEPAD_BINDS.left]?.pressed) this.down.add("ArrowLeft");
-    else this.down.delete("ArrowLeft");
-    if (pad.buttons[GAMEPAD_BINDS.right]?.pressed) this.down.add("ArrowRight");
-    else this.down.delete("ArrowRight");
-    if (pad.buttons[GAMEPAD_BINDS.softDrop]?.pressed)
-      this.down.add("ArrowDown");
-    else this.down.delete("ArrowDown");
     this.previous = pad.buttons.map((button) => button.pressed);
   }
   endFrame() {
