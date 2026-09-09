@@ -1056,12 +1056,16 @@ export class SinglePlayerHud {
     title.overWord.x = left + title.gameWord.width + gap;
   }
 
-  replaceGameOverAction({ label, onTrigger, fill = 0xa8ff77, textColor = 0x061523 } = {}) {
+  replaceGameOverAction({ label, onTrigger, fill = 0xa8ff77, textColor = 0x061523, immediate = false } = {}) {
     const action = this.gameOverAction;
     if (!action) return;
     this.gameOverPlayAgain.visible = true;
     this.gameOverPlayAgain.alpha =
       this.gameOverRestartRemaining > 0 ? 0.42 : 1;
+    if (immediate) {
+      this.gameOverRestartRemaining = 0;
+      this.gameOverPlayAgain.alpha = 1;
+    }
     if (label) action.buttonLabel.text = label;
     action.buttonLabel.style.fill = textColor;
     action.buttonFace
