@@ -868,6 +868,7 @@ export class SinglePlayerHud {
 
     const gameWord = this.gameOverTitle("GAME", COLORS.MENU_LOGO);
     const overWord = this.gameOverTitle("OVER", COLORS.MENU_LOGO_TEXT);
+    this.gameOverTitleWords = { gameWord, overWord };
     const titleWidth = gameWord.width + overWord.width + 12;
     gameWord.anchor.set(0, 0.5);
     overWord.anchor.set(0, 0.5);
@@ -961,13 +962,15 @@ export class SinglePlayerHud {
         fill: COLORS.APP_BACKGROUND,
       },
     });
+    buttonLabel.label = "gameOverActionLabel";
     buttonLabel.anchor.set(0.5);
     buttonLabel.position.set(0, buttonY + GAME_OVER_PLAY_AGAIN_HEIGHT / 2);
     playAgain.addChild(buttonFace, animateText(buttonLabel));
     playAgain.on("pointertap", (event) => {
       event.stopPropagation?.();
       if (this.gameOverRestartRemaining > 0) return;
-      this.restartAction?.({
+      const action = this.gameOverAction?.onTrigger || this.restartAction;
+      action?.({
         source: event.pointerType === "touch" ? "touch" : "pointer",
         originalEvent: event,
       });
@@ -978,6 +981,7 @@ export class SinglePlayerHud {
     this.gameOverEnterElapsed = 0;
     this.gameOverRestartRemaining = GAME_OVER_RESTART_INPUT_DELAY_MS;
     this.gameOverPlayAgain = playAgain;
+    this.gameOverAction = { buttonFace, buttonLabel, onTrigger: null };
     this.gameOverTextEntries = animatedText.map((text, index) => ({
       text,
       delay: index * GAME_OVER_TEXT_ENTER_STAGGER_MS,
@@ -991,6 +995,42 @@ export class SinglePlayerHud {
     this.gameOverMessage.alpha = 0;
     this.gameOverMessage.scale.set(GAME_OVER_ENTER_START_SCALE);
     this.gameOverMessage.visible = true;
+  }
+
+  replaceGameOverTitle(text, color) {
+    const title = this.gameOverTitleWords;
+    if (!title) return;
+    title.gameWord.text = text;
+    title.gameWord.style.fill = color;
+    title.gameWord.anchor.set(0.5);
+    title.gameWord.x = 0;
+    title.overWord.visible = false;
+  }
+
+  replaceGameOverAction({ label, onTrigger, fill = 0xa8ff77, textColor = 0x061523 } = {}) {
+    const action = this.gameOverAction;
+    if (!action) return;
+    this.gameOverPlayAgain.visible = true;
+    this.gameOverPlayAgain.alpha =
+      this.gameOverRestartRemaining > 0 ? 0.42 : 1;
+    if (label) action.buttonLabel.text = label;
+    action.buttonLabel.style.fill = textColor;
+    action.buttonFace
+      .clear()
+      .roundRect(
+        -GAME_OVER_PLAY_AGAIN_WIDTH / 2,
+        action.buttonLabel.y - GAME_OVER_PLAY_AGAIN_HEIGHT / 2,
+        GAME_OVER_PLAY_AGAIN_WIDTH,
+        GAME_OVER_PLAY_AGAIN_HEIGHT,
+        8,
+      )
+      .fill(fill)
+      .stroke({ width: 2, color: COLORS.MENU_LOGO_TEXT });
+    action.onTrigger = onTrigger || null;
+  }
+
+  hideGameOverAction() {
+    if (this.gameOverPlayAgain) this.gameOverPlayAgain.visible = false;
   }
 
   resetCallout() {
