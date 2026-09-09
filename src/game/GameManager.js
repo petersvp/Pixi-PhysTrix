@@ -46,6 +46,22 @@ import { safeTickerDelta } from "../app/TickerSafety.js";
 const ENABLE_REFLECTION_CAPTURE = false;
 const MAX_GRAVITY_CATCH_UP_STEPS = 512;
 
+const seededRandom = (seed) => {
+  if (seed === undefined || seed === null || seed === "") return Math.random;
+  let state = 2166136261;
+  for (const character of String(seed)) {
+    state ^= character.charCodeAt(0);
+    state = Math.imul(state, 16777619);
+  }
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
 /** Shared Guideline controller; gameplay modes provide mode-specific world behavior. */
 export class GameManager {
   constructor({
@@ -63,7 +79,8 @@ export class GameManager {
     this.rows = Math.max(4, Math.min(99, Math.floor(Number(grid.height) || ROWS)));
     this.settings = loadPersistentSettings();
     this.board = new Board(this.cols, this.rows);
-    this.queue = new PieceQueue(Math.random, this.session?.polyominoPreset, this.session?.roomRules);
+    this.resetRandomSources();
+    this.queue = new PieceQueue(this.queueRandom, this.session?.polyominoPreset, this.session?.roomRules);
     this.holdEnabled = this.session?.roomRules?.mutators?.enableHold !== false;
     this.input = new InputManager();
     this.sound = new SoundEngine(this.settings);
@@ -117,7 +134,7 @@ export class GameManager {
     );
     this.playfield.setHoldAction(() => this.holdPiece());
     this.playfield.setRestartAction(() => this.restartAfterGameOver());
-    this.trash = new TrashSystem(this.session?.trash, Math.random, this.session?.roomRules);
+    this.trash = new TrashSystem(this.session?.trash, this.trashRandom, this.session?.roomRules);
     this.gameplay.attach(this);
     this.reflectionCapture = ENABLE_REFLECTION_CAPTURE
       ? new ReflectionCapture(
@@ -166,13 +183,25 @@ export class GameManager {
     this.updateStartCountdown();
     this.render();
   }
+
+  resetRandomSources() {
+    const seed = this.session?.randomSeed;
+    this.queueRandom = seededRandom(
+      seed === undefined || seed === null || seed === "" ? null : `${seed}:queue`,
+    );
+    this.trashRandom = seededRandom(
+      seed === undefined || seed === null || seed === "" ? null : `${seed}:trash`,
+    );
+  }
+
   start() {
     if (this.failed) return false;
     this.board.reset();
     this.gameplay.reset(this);
-    this.trash = new TrashSystem(this.session?.trash, Math.random, this.session?.roomRules);
+    this.resetRandomSources();
+    this.trash = new TrashSystem(this.session?.trash, this.trashRandom, this.session?.roomRules);
     this.gameplay.spawnTrash?.(this, this.trash);
-    this.queue = new PieceQueue(Math.random, this.session?.polyominoPreset, this.session?.roomRules);
+    this.queue = new PieceQueue(this.queueRandom, this.session?.polyominoPreset, this.session?.roomRules);
     this.holdEnabled = this.session?.roomRules?.mutators?.enableHold !== false;
     this.score = this.lines = 0;
     this.elapsedMs = 0;

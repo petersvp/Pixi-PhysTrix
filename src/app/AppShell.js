@@ -17,6 +17,8 @@ import { AmbientBackground } from "./AmbientBackground.js";
 export class AppShell {
   constructor(root) {
     this.root = root;
+    this.hiddenTickTimer = null;
+    this.visibleTickerMinFPS = null;
   }
 
   async init() {
@@ -47,6 +49,38 @@ export class AppShell {
     };
     addEventListener("resize", this.resize);
     this.resize();
+    this.onVisibilityChange = () => {
+      if (!document.hidden) {
+        if (this.hiddenTickTimer !== null) {
+          clearInterval(this.hiddenTickTimer);
+          this.hiddenTickTimer = null;
+        }
+        if (this.visibleTickerMinFPS !== null) {
+          this.app.ticker.minFPS = this.visibleTickerMinFPS;
+          this.visibleTickerMinFPS = null;
+        }
+        this.app.ticker.start();
+        return;
+      }
+
+      // requestAnimationFrame is throttled while a tab is hidden. Keep the
+      // logical Pixi ticker alive for gameplay/network listeners, then render
+      // the current stage explicitly instead of leaving the match frozen.
+      if (this.hiddenTickTimer !== null) return;
+      this.visibleTickerMinFPS = this.app.ticker.minFPS;
+      // Pixi ordinarily caps a delayed frame to its minFPS. Background tabs
+      // are deliberately timer-throttled, so that cap would make gameplay
+      // advance only a small fraction of real elapsed time.
+      this.app.ticker.minFPS = 0;
+      this.app.ticker.stop();
+      this.hiddenTickTimer = setInterval(() => {
+        if (!document.hidden || this.app.renderer.destroyed) return;
+        this.app.ticker.update(performance.now());
+        this.app.renderer.render(this.app.stage);
+      }, 1000 / 60);
+    };
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
+    this.onVisibilityChange();
     return this;
   }
 
