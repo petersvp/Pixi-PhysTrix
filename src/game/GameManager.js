@@ -40,6 +40,7 @@ import { TouchController } from "./TouchController.js";
 import { TrashSystem } from "./TrashSystem.js";
 import { GameStatistics } from "./GameStatistics.js";
 import { safeTickerDelta } from "../app/TickerSafety.js";
+import { COLORS } from "../config/colors.js";
 
 // The reflection shader path remains authored and available, but its separate
 // mino-only render-texture capture pass is deliberately disabled for now.
@@ -103,6 +104,7 @@ export class GameManager {
     this.lockResets = 0;
     this.classicCombo = 0;
     this.goalProgress = { combos: 0, chains: 0, megaspins: 0, perfectClears: 0 };
+    this.lives = this.initialLives();
     this.id = 1;
     // Sessions always run inside AppShell's persistent v8 Application.
     // Creating a second renderer here would violate scene routing and can
@@ -227,6 +229,7 @@ export class GameManager {
     this.lockResets = 0;
     this.classicCombo = 0;
     this.goalProgress = { combos: 0, chains: 0, megaspins: 0, perfectClears: 0 };
+    this.lives = this.initialLives();
     this.playfield.hud.resetCallout();
     this.state = GameState.PLAYING;
     this.onGameStarted?.({ game: this });
@@ -431,6 +434,7 @@ export class GameManager {
   }
   gameOver({ preserveActive = false } = {}) {
     if (DEBUG_NO_GAME_OVER) return false;
+    if (this.lives > 1) return this.consumeLife();
     if (!preserveActive) {
       this.gameplay.onGameOver(this);
       this.active = null;
@@ -440,6 +444,31 @@ export class GameManager {
     const summary = this.statistics.snapshot(this.elapsedMs);
     this.playfield.hud.showGameOver(this.score, summary);
     this.onGameOver?.({ score: this.score, summary });
+    return true;
+  }
+  initialLives() {
+    const configuredLives = Number(this.session?.roomRules?.series?.lives);
+    if (Number.isFinite(configuredLives)) return Math.max(1, Math.floor(configuredLives));
+    return 1 + Math.max(0, Math.floor(Number(this.session?.roomRules?.win?.extraLives) || 0));
+  }
+  consumeLife() {
+    this.lives -= 1;
+    this.gameplay.onGameOver(this);
+    this.active = null;
+    this.board.reset();
+    this.gameplay.reset(this);
+    if (this.trash.enabled) this.gameplay.spawnTrash?.(this, this.trash);
+    this.grounded = false;
+    this.lockTimer = 0;
+    this.lockResets = 0;
+    this.touchSoftDropTargetY = null;
+    this.playfield.hud.resetCallout();
+    this.playfield.hud.hideStateMessage();
+    this.playfield.hud.showScoringCallout("OUCH!", {
+      color: COLORS.MAJOR_CLEAR_TEXT,
+    });
+    this.onLifeLost?.({ lives: this.lives });
+    this.spawn();
     return true;
   }
   restartAfterGameOver() {
@@ -553,7 +582,12 @@ export class GameManager {
     if (active.length && active.every(Boolean)) {
       this.state = GameState.WON;
       this.active = null;
-      this.playfield.hud.showCountdown("VICTORY!");
+      this.playfield.hud.showGameOver(
+        this.score,
+        this.statistics.snapshot(this.elapsedMs),
+      );
+      this.playfield.hud.replaceGameOverTitle("VICTORY", "#a8ff77");
+      this.playfield.hud.hideGameOverAction();
       this.onGameWon?.({ score: this.score, progress: { ...this.goalProgress } });
     }
   }
@@ -754,6 +788,10 @@ export class GameManager {
       lines: this.lines,
       level: this.level,
       goals: this.session?.roomRules?.win,
+      goalProgress: this.goalProgress,
+      trashLevel: this.trash?.level || 0,
+      trashCleared: !this.trash?.boardHasTrash(this.board) && !this.physics?.hasTrash(),
+      lives: this.lives,
       elapsedMs: this.elapsedMs,
       hold: this.hold,
       next: this.queue.items,

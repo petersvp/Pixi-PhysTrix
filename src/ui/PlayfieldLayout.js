@@ -50,7 +50,8 @@ import {
   HOLD_PREVIEW_SCALE,
   HOLD_PREVIEW_Y,
   HOLD_PREVIEW_SLOT_BOTTOM,
-  HUD_LABEL_FONT_SIZE,
+  HUD_LIVES_FONT_SIZE,
+  HUD_LIVES_Y_OFFSET,
   HUD_PANEL_CORE_ALPHA,
   HUD_PANEL_GLOW_ALPHA,
   HUD_PANEL_GLOW_SPREAD,
@@ -60,10 +61,20 @@ import {
   HUD_SIDE_WIDTH,
   HUD_STATS_RIGHT_PADDING,
   HUD_STATS_CONTENT_HEIGHT,
-  HUD_STATS_ROW_SPACING,
-  HUD_STATS_VALUE_Y_OFFSET,
+  HUD_STATS_CURRENT_COLOR,
+  HUD_STATS_CURRENT_FONT_SIZE,
+  HUD_STATS_COMPLETED_CURRENT_COLOR,
+  HUD_STATS_COMPLETED_LABEL_COLOR,
+  HUD_STATS_COMPLETED_TARGET_COLOR,
+  HUD_STATS_FONT_FAMILY,
+  HUD_STATS_GROUP_GAP,
+  HUD_STATS_GROUP_LINE_HEIGHT,
+  HUD_STATS_LABEL_COLOR,
+  HUD_STATS_LABEL_FONT_SIZE,
+  HUD_STATS_SCORE_TARGET_FONT_SIZE,
+  HUD_STATS_TARGET_COLOR,
+  HUD_STATS_TARGET_FONT_SIZE,
   HUD_STATS_Y_OFFSET,
-  HUD_VALUE_FONT_SIZE,
   ITEM_PANEL_DETACHED_BLOCK_OFFSET,
   ITEM_PANEL_HEIGHT,
   ITEM_PANEL_WIDTH,
@@ -91,6 +102,12 @@ import {
 import { COLORS } from "../config/colors.js";
 import { chainName } from "../game/ChainSystem.js";
 import { AdvancedLineRenderer } from "../render/AdvancedLineRenderer.js";
+
+const pluralizeClearRank = (rank) =>
+  rank.endsWith("X") ? `${rank}ES` : rank.endsWith("E") ? `${rank}S` : `${rank}S`;
+
+const statMarkup = (label, current, target = null, score = false, completed = false) =>
+  `<div class="stat${completed ? " completed" : ""}"><span class="label">${label}</span><br><span class="current">${current}</span>${target === null ? "" : score ? `<br><span class="scoreTarget">/${target}</span>` : `<span class="target">/${target}</span>`}</div>`;
 
 export const createPlayfieldLayout = ({
   cols,
@@ -516,37 +533,52 @@ export class SinglePlayerHud {
       this.itemPanel.label = "itemsPanel";
       this.createItemSlots(this.itemPanel, this.layout.items);
     }
+    this.livesText = new PIXI.Text({
+      text: "",
+      style: { fontFamily: "sans-serif", fontSize: HUD_LIVES_FONT_SIZE },
+    });
+    this.livesText.label = "livesIndicator";
+    this.livesText.anchor.set(0.5, 1);
+    this.livesText.position.set(this.layout.hold.width / 2, HUD_LIVES_Y_OFFSET);
+    this.livesText.visible = false;
+    this.holdPanel.addChild(this.livesText);
+
     this.statsPanel = new PIXI.Container();
     this.statsPanel.label = "statisticsPanel";
     this.statsPanel.position.set(this.layout.stats.x, this.layout.stats.y);
-    this.statsRows = ["SCORE", "CHAINS", "SPEED", "TIME"].map((label, index) => {
-      const title = new PIXI.Text({
-        text: label,
-        style: {
-          fontFamily: "Quantico",
-          fontSize: HUD_LABEL_FONT_SIZE,
-          fontWeight: "bold",
-          fill: COLORS.HUD_LABEL,
+    this.statsText = new PIXI.HTMLText({
+      text: "",
+      style: {
+        fontFamily: HUD_STATS_FONT_FAMILY,
+        fontSize: HUD_STATS_LABEL_FONT_SIZE,
+        fontWeight: "bold",
+        fill: HUD_STATS_LABEL_COLOR,
+        align: "right",
+        cssOverrides: `
+          .stat { line-height: ${HUD_STATS_GROUP_LINE_HEIGHT}px; margin-bottom: ${HUD_STATS_GROUP_GAP}px; }
+          .label { color: ${HUD_STATS_LABEL_COLOR}; font-size: ${HUD_STATS_LABEL_FONT_SIZE}px; }
+          .current { color: ${HUD_STATS_CURRENT_COLOR}; font-size: ${HUD_STATS_CURRENT_FONT_SIZE}px; }
+          .target { color: ${HUD_STATS_TARGET_COLOR}; font-size: ${HUD_STATS_TARGET_FONT_SIZE}px; }
+          .scoreTarget { color: ${HUD_STATS_TARGET_COLOR}; font-size: ${HUD_STATS_SCORE_TARGET_FONT_SIZE}px; }
+          .stat.completed .label { color: ${HUD_STATS_COMPLETED_LABEL_COLOR}; }
+          .stat.completed .current { color: ${HUD_STATS_COMPLETED_CURRENT_COLOR}; }
+          .stat.completed .target, .stat.completed .scoreTarget { color: ${HUD_STATS_COMPLETED_TARGET_COLOR}; }
+        `,
+        tagStyles: {
+          ".stat": {
+            lineHeight: HUD_STATS_GROUP_LINE_HEIGHT,
+          },
+          ".label": { color: HUD_STATS_LABEL_COLOR, fontSize: HUD_STATS_LABEL_FONT_SIZE },
+          ".current": { color: HUD_STATS_CURRENT_COLOR, fontSize: HUD_STATS_CURRENT_FONT_SIZE },
+          ".target": { color: HUD_STATS_TARGET_COLOR, fontSize: HUD_STATS_TARGET_FONT_SIZE },
+          ".scoreTarget": { color: HUD_STATS_TARGET_COLOR, fontSize: HUD_STATS_SCORE_TARGET_FONT_SIZE },
         },
-      });
-      const value = new PIXI.Text({
-        text: "0",
-        style: {
-          fontFamily: "Quantico",
-          fontSize: HUD_VALUE_FONT_SIZE,
-          fontWeight: "bold",
-          fill: COLORS.HUD_VALUE,
-        },
-      });
-      const rowY = index * HUD_STATS_ROW_SPACING;
-      const rightEdge = this.layout.stats.width - HUD_STATS_RIGHT_PADDING;
-      title.anchor.set(1, 0);
-      value.anchor.set(1, 0);
-      title.position.set(rightEdge, rowY);
-      value.position.set(rightEdge, rowY + HUD_STATS_VALUE_Y_OFFSET);
-      this.statsPanel.addChild(title, value);
-      return { value };
+      },
     });
+    this.statsText.label = "statisticsText";
+    this.statsText.anchor.set(1, 0);
+    this.statsText.position.set(this.layout.stats.width - HUD_STATS_RIGHT_PADDING, 0);
+    this.statsPanel.addChild(this.statsText);
     this.root.addChild(this.statsPanel);
 
     this.holdPreview = new PIXI.Container();
@@ -1007,6 +1039,23 @@ export class SinglePlayerHud {
     title.overWord.visible = false;
   }
 
+  replaceGameOverTitleWords(first, firstColor, second, secondColor) {
+    const title = this.gameOverTitleWords;
+    if (!title) return;
+    title.gameWord.text = first;
+    title.gameWord.style.fill = firstColor;
+    title.overWord.text = second;
+    title.overWord.style.fill = secondColor;
+    title.gameWord.anchor.set(0, 0.5);
+    title.overWord.anchor.set(0, 0.5);
+    title.overWord.visible = true;
+    const gap = 12;
+    const width = title.gameWord.width + title.overWord.width + gap;
+    const left = -width / 2;
+    title.gameWord.x = left;
+    title.overWord.x = left + title.gameWord.width + gap;
+  }
+
   replaceGameOverAction({ label, onTrigger, fill = 0xa8ff77, textColor = 0x061523 } = {}) {
     const action = this.gameOverAction;
     if (!action) return;
@@ -1207,6 +1256,10 @@ export class SinglePlayerHud {
     hold,
     next,
     goals = {},
+    goalProgress = {},
+    trashLevel = 0,
+    trashCleared = false,
+    lives = 1,
     showHold = true,
     showQueue = true,
   }) {
@@ -1216,16 +1269,42 @@ export class SinglePlayerHud {
     const totalSeconds = Math.floor(elapsedMs / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = String(totalSeconds % 60).padStart(2, "0");
-    const reach = (value, enabled, target) =>
-      enabled ? `${value}/${target}` : value;
-    [
-      reach(score, goals.score, goals.scoreTarget),
-      reach(lines, goals.chains, goals.chainTarget),
-      reach(level, goals.speed, goals.speedTarget),
-      `${minutes}:${seconds}`,
-    ].forEach((value, index) => {
-      this.statsRows[index].value.text = String(value);
-    });
+    const missions = [];
+    if (goals.score) missions.push(["SCORE", score, goals.scoreTarget, "score", score >= Number(goals.scoreTarget)]);
+    if (goals.trashWin === "reach-level") missions.push(["TRASH", trashLevel, goals.trashLevel, "trash", trashLevel >= Number(goals.trashLevel)]);
+    if (goals.trashWin === "clear-bottom-line") missions.push(["TRASH", trashLevel, "CLEAR BOTTOM LINE", "trash", trashCleared]);
+    if (goals.chains) missions.push(["LINES", lines, goals.chainTarget, "lines", lines >= Number(goals.chainTarget)]);
+    if (goals.speed) missions.push(["SPEED", level, goals.speedTarget, "speed", level >= Number(goals.speedTarget)]);
+    if (goals.combos) {
+      const rank = Math.max(1, Number(goals.comboLength) || 1);
+      missions.push([`${rank}-COMBOS`, goalProgress.combos || 0, goals.comboCount, "combos", (goalProgress.combos || 0) >= Number(goals.comboCount)]);
+    }
+    if (goals.chainGoals) {
+      const rank = chainName(Math.max(1, Number(goals.chainLength) || 1));
+      missions.push([pluralizeClearRank(rank), goalProgress.chains || 0, goals.chainCount, "chainGoals", (goalProgress.chains || 0) >= Number(goals.chainCount)]);
+    }
+    if (goals.megaspins)
+      missions.push(["MEGASPINS", goalProgress.megaspins || 0, goals.megaspinCount, "megaspins", (goalProgress.megaspins || 0) >= Number(goals.megaspinCount)]);
+    if (goals.perfectClears)
+      missions.push(["ALL-CLEARS", goalProgress.perfectClears || 0, goals.perfectClearCount, "perfectClears", (goalProgress.perfectClears || 0) >= Number(goals.perfectClearCount)]);
+
+    const defaults = [
+      ["SCORE", score, null, "score"],
+      ["CHAINS", lines, null, "lines"],
+      ["SPEED", level, null, "speed"],
+      ["TIME", `${minutes}:${seconds}`, null, "time"],
+    ];
+    const used = new Set(missions.map(([, , , key]) => key));
+    const stats = [...missions, ...defaults.filter(([, , , key]) => !used.has(key))]
+      .slice(0, 5);
+    this.statsText.text = stats
+      .map(([label, current, target, key, completed]) => statMarkup(label, current, target, key === "score", completed))
+      .join("");
+    const normalizedLives = Math.max(1, Math.floor(Number(lives) || 1));
+    this.livesText.visible = normalizedLives > 1;
+    this.livesText.text = normalizedLives > 4
+      ? `💙 x ${normalizedLives}`
+      : "💙".repeat(normalizedLives);
     this.holdRenderer.draw(
       this.holdPreview,
       hold ? [hold] : [],

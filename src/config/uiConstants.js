@@ -122,12 +122,23 @@ export const NEXT_PANEL_BOTTOM_PADDING = 28;
 export const PREVIEW_SLOT_INSET = 0;
 export const PREVIEW_SLOT_PADDING = 12;
 
-export const HUD_LABEL_FONT_SIZE = 16;
-export const HUD_VALUE_FONT_SIZE = 27;
+export const HUD_STATS_FONT_FAMILY = "Quantico";
+export const HUD_STATS_LABEL_FONT_SIZE = 16;
+export const HUD_STATS_CURRENT_FONT_SIZE = 27;
+export const HUD_STATS_TARGET_FONT_SIZE = 20;
+export const HUD_STATS_SCORE_TARGET_FONT_SIZE = 16;
+export const HUD_STATS_LABEL_COLOR = "#aed4ff";
+export const HUD_STATS_CURRENT_COLOR = "#f2f8ff";
+export const HUD_STATS_TARGET_COLOR = "#7290aa";
+export const HUD_STATS_COMPLETED_CURRENT_COLOR = "#c9ffad";
+export const HUD_STATS_COMPLETED_LABEL_COLOR = "#89d86c";
+export const HUD_STATS_COMPLETED_TARGET_COLOR = "#4f8c55";
+export const HUD_STATS_GROUP_LINE_HEIGHT = 24;
+export const HUD_STATS_GROUP_GAP = 12;
+export const HUD_LIVES_FONT_SIZE = 18;
+export const HUD_LIVES_Y_OFFSET = -28;
 export const HUD_STATS_RIGHT_PADDING = 30;
 export const HUD_STATS_Y_OFFSET = 36;
-export const HUD_STATS_ROW_SPACING = 78;
-export const HUD_STATS_VALUE_Y_OFFSET = 19;
 export const HUD_STATS_CONTENT_HEIGHT = 288;
 
 export const ITEM_PANEL_WIDTH = 265;
