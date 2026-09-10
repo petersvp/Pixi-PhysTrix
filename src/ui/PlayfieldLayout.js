@@ -1276,7 +1276,8 @@ export class SinglePlayerHud {
     const missions = [];
     if (goals.score) missions.push(["SCORE", score, goals.scoreTarget, "score", score >= Number(goals.scoreTarget)]);
     if (goals.trashWin === "reach-level") missions.push(["TRASH", trashLevel, goals.trashLevel, "trash", trashLevel >= Number(goals.trashLevel)]);
-    if (goals.trashWin === "clear-bottom-line") missions.push(["TRASH", trashLevel, "CLEAR BOTTOM LINE", "trash", trashCleared]);
+    if (goals.trashWin === "clear-bottom-line")
+      missions.push(["TRASH", "Clear bottom line", null, "trash", trashCleared]);
     if (goals.chains) missions.push(["LINES", lines, goals.chainTarget, "lines", lines >= Number(goals.chainTarget)]);
     if (goals.speed) missions.push(["SPEED", level, goals.speedTarget, "speed", level >= Number(goals.speedTarget)]);
     if (goals.combos) {
