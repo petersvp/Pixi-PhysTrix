@@ -52,4 +52,6 @@ export const PLAYFIELD_LIFE_LOSS_PUNCH = Object.freeze({
   glowColor: 0xff2638,
   glowDistance: 20,
   glowStrength: 3,
+  glowPulseCycles: 3,
+  glowMinimumStrength: 0.15,
 });

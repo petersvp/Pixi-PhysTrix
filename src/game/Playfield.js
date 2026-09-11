@@ -214,13 +214,23 @@ export class Playfield {
       innerStrength: 0.25,
     });
     this.root.filters = [...(this.root.filters || []), filter];
-    this.lifeLossGlow = filter;
+    this.lifeLossGlow = { filter, elapsed: 0 };
   }
   addPunch({ scale, y, rotation, duration, shake = 0 }) {
     this.punch = { scale, y, rotation, shake, life: duration, total: duration };
   }
   update(deltaMS) {
     this.effects.update(deltaMS);
+    if (this.lifeLossGlow) {
+      this.lifeLossGlow.elapsed += deltaMS;
+      const duration = PLAYFIELD_LIFE_LOSS_PUNCH.duration;
+      const progress = Math.min(1, this.lifeLossGlow.elapsed / duration);
+      const pulse = (Math.sin(progress * Math.PI * PLAYFIELD_LIFE_LOSS_PUNCH.glowPulseCycles) + 1) / 2;
+      this.lifeLossGlow.filter.outerStrength =
+        PLAYFIELD_LIFE_LOSS_PUNCH.glowMinimumStrength +
+        (PLAYFIELD_LIFE_LOSS_PUNCH.glowStrength - PLAYFIELD_LIFE_LOSS_PUNCH.glowMinimumStrength) *
+          pulse * (1 - progress);
+    }
     if (this.punch.life <= 0) return;
     this.punch.life = Math.max(0, this.punch.life - deltaMS);
     const amount = this.punch.total ? this.punch.life / this.punch.total : 0;
@@ -236,7 +246,7 @@ export class Playfield {
       this.root.rotation = 0;
       if (this.lifeLossGlow) {
         this.root.filters = (this.root.filters || []).filter(
-          (filter) => filter !== this.lifeLossGlow,
+          (filter) => filter !== this.lifeLossGlow.filter,
         );
         this.lifeLossGlow = null;
       }

@@ -1308,11 +1308,14 @@ export class SinglePlayerHud {
     this.statsText.text = stats
       .map(([label, current, target, key, completed]) => statMarkup(label, current, target, key === "score", completed))
       .join("");
-    const normalizedLives = Math.max(1, Math.floor(Number(lives) || 1));
-    this.livesText.visible = normalizedLives > 1;
-    this.livesText.text = normalizedLives > 4
-      ? `💙 x ${normalizedLives}`
-      : "💙".repeat(normalizedLives);
+    // `lives` includes the board currently being played. The HUD deliberately
+    // shows only the remaining retries, so three total lives starts as two
+    // hearts and the final life shows no heart at all.
+    const extraLives = Math.max(0, Math.floor(Number(lives) || 1) - 1);
+    this.livesText.visible = extraLives > 0;
+    this.livesText.text = extraLives > 4
+      ? `💙 x ${extraLives}`
+      : "💙".repeat(extraLives);
     this.holdRenderer.draw(
       this.holdPreview,
       hold ? [hold] : [],
