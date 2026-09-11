@@ -43,3 +43,13 @@ export const PLAYFIELD_HARD_DROP_PUNCH = Object.freeze({
   rotation: 0,
   duration: 160,
 });
+export const PLAYFIELD_LIFE_LOSS_PUNCH = Object.freeze({
+  scale: 0.12,
+  y: -12,
+  rotation: 0.05,
+  shake: 14,
+  duration: 700,
+  glowColor: 0xff2638,
+  glowDistance: 20,
+  glowStrength: 3,
+});

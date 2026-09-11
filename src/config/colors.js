@@ -57,6 +57,7 @@ export const COLORS = Object.freeze({
   CALLOUT_STROKE: 0x06101f,
   CALLOUT_CHAIN: 0xffe54f,
   SPIN_TEXT: 0xff83df,
+  LIFE_LOSS_TEXT: 0xff4d68,
   MAJOR_CLEAR_TEXT: 0xffd34d,
   PERFECT_CLEAR_GOLD: 0xffd34d,
   PERFECT_CLEAR_GREEN: 0x8dff62,

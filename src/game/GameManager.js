@@ -465,10 +465,17 @@ export class GameManager {
     this.playfield.hud.resetCallout();
     this.playfield.hud.hideStateMessage();
     this.playfield.hud.showScoringCallout("OUCH!", {
-      color: COLORS.MAJOR_CLEAR_TEXT,
+      color: COLORS.LIFE_LOSS_TEXT,
+      centered: true,
+      prominent: true,
     });
+    this.playfield.lifeLossPunch();
     this.onLifeLost?.({ lives: this.lives });
-    this.spawn();
+    this.resumingAfterLifeLoss = true;
+    this.state = GameState.START;
+    this.startCountdownMS = 3500;
+    this.startCountdownStage = -1;
+    this.updateStartCountdown();
     return true;
   }
   restartAfterGameOver() {
@@ -647,7 +654,10 @@ export class GameManager {
     if (this.state === GameState.START) {
       this.startCountdownMS -= ms;
       this.updateStartCountdown();
-      if (this.startCountdownMS <= 0) this.start();
+      if (this.startCountdownMS <= 0) {
+        if (this.resumingAfterLifeLoss) this.resumeAfterLifeLoss();
+        else this.start();
+      }
       this.render();
       this.input.endFrame();
       return;
@@ -780,7 +790,16 @@ export class GameManager {
         : 0;
     if (stage === this.startCountdownStage) return;
     this.startCountdownStage = stage;
-    this.playfield.hud.showCountdown(stage > 0 ? String(stage) : "GO!");
+    this.playfield.hud.showCountdown(stage > 0 ? String(stage) : "GO!", {
+      color: this.resumingAfterLifeLoss ? COLORS.LIFE_LOSS_TEXT : COLORS.FIELD_TEXT,
+    });
+  }
+
+  resumeAfterLifeLoss() {
+    this.resumingAfterLifeLoss = false;
+    this.state = GameState.PLAYING;
+    this.playfield.hud.hideStateMessage();
+    this.spawn();
   }
   render() {
     this.playfield.hud.update({

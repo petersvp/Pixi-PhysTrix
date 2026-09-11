@@ -754,9 +754,10 @@ export class SinglePlayerHud {
     this.gameOverMessage.visible = false;
   }
 
-  showCountdown(text) {
+  showCountdown(text, { color = COLORS.FIELD_TEXT } = {}) {
     this.gameOverMessage.visible = false;
     this.message.text = text;
+    this.message.style.fill = color;
     // Countdown callouts are deliberately dominant; the normal HUD prompt is
     // never used during scene entry, so it can safely use this larger style.
     this.message.style.fontSize = 156;
@@ -1103,38 +1104,40 @@ export class SinglePlayerHud {
       majorClear = false,
       lineType = "",
       perfectClear = false,
+      centered = perfectClear,
+      prominent = perfectClear,
     } = {},
   ) {
     if (!primary) return;
     this.calloutMain.text = primary;
     this.calloutMain.style.fill = color;
     this.calloutMain.scale.set(
-      perfectClear
+      prominent
         ? CALLOUT_PERFECT_CLEAR_SCALE
         : majorClear
           ? CALLOUT_MAJOR_CLEAR_SCALE
           : 1,
     );
-    this.calloutMain.position.y = perfectClear ? -34 : 0;
+    this.calloutMain.position.y = centered ? -34 : 0;
     this.calloutCombo.text = `COMBO ${combo}`;
     this.calloutCombo.position.set(
       0,
-      perfectClear ? 42 : CALLOUT_COMBO_Y_OFFSET,
+      centered ? 42 : CALLOUT_COMBO_Y_OFFSET,
     );
     this.calloutCombo.visible = combo > 1;
     this.calloutType.text = lineType;
-    this.calloutType.position.set(0, perfectClear ? 70 : 42);
+    this.calloutType.position.set(0, centered ? 70 : 42);
     this.calloutType.visible = Boolean(lineType);
     this.calloutPoints.text = `+${points}`;
     this.calloutPoints.position.set(
       0,
-      perfectClear ? 98 : CALLOUT_POINTS_Y_OFFSET,
+      centered ? 98 : CALLOUT_POINTS_Y_OFFSET,
     );
     this.calloutPoints.visible = points > 0;
     // A Perfect Clear is a board-wide event, rather than a local line event.
     this.callout.position.set(
-      perfectClear ? this.overlayLayout.centerX : x,
-      perfectClear ? this.overlayLayout.centerY : y,
+      centered ? this.overlayLayout.centerX : x,
+      centered ? this.overlayLayout.centerY : y,
     );
     this.callout.alpha = 1;
     this.callout.scale.set(CALLOUT_POP_SCALE);

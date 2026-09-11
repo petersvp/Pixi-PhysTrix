@@ -26,6 +26,7 @@ import { TRASH_SKIN_FILE } from "../config/trashConstants.js";
 import { createPlayfieldLayout, SinglePlayerHud } from "../ui/PlayfieldLayout.js";
 import {
   PLAYFIELD_HARD_DROP_PUNCH,
+  PLAYFIELD_LIFE_LOSS_PUNCH,
   PLAYFIELD_MATCH_PUNCH,
   PLAYFIELD_SPIN_PUNCH,
 } from "../config/effectsConstants.js";
@@ -202,8 +203,21 @@ export class Playfield {
   hardDropPunch() {
     this.addPunch(PLAYFIELD_HARD_DROP_PUNCH);
   }
-  addPunch({ scale, y, rotation, duration }) {
-    this.punch = { scale, y, rotation, life: duration, total: duration };
+  lifeLossPunch() {
+    this.addPunch(PLAYFIELD_LIFE_LOSS_PUNCH);
+    const GlowFilter = PIXI.filters?.GlowFilter;
+    if (!GlowFilter) return;
+    const filter = new GlowFilter({
+      color: PLAYFIELD_LIFE_LOSS_PUNCH.glowColor,
+      distance: PLAYFIELD_LIFE_LOSS_PUNCH.glowDistance,
+      outerStrength: PLAYFIELD_LIFE_LOSS_PUNCH.glowStrength,
+      innerStrength: 0.25,
+    });
+    this.root.filters = [...(this.root.filters || []), filter];
+    this.lifeLossGlow = filter;
+  }
+  addPunch({ scale, y, rotation, duration, shake = 0 }) {
+    this.punch = { scale, y, rotation, shake, life: duration, total: duration };
   }
   update(deltaMS) {
     this.effects.update(deltaMS);
@@ -211,12 +225,21 @@ export class Playfield {
     this.punch.life = Math.max(0, this.punch.life - deltaMS);
     const amount = this.punch.total ? this.punch.life / this.punch.total : 0;
     this.root.scale.set(1 + this.punch.scale * amount);
+    this.root.x = this.layout.centerX +
+      this.punch.shake * amount * Math.sin((1 - amount) * Math.PI * 12);
     this.root.y = this.layout.centerY + this.punch.y * amount;
     this.root.rotation = this.punch.rotation * amount;
     if (!this.punch.life) {
       this.root.scale.set(1);
+      this.root.x = this.layout.centerX;
       this.root.y = this.layout.centerY;
       this.root.rotation = 0;
+      if (this.lifeLossGlow) {
+        this.root.filters = (this.root.filters || []).filter(
+          (filter) => filter !== this.lifeLossGlow,
+        );
+        this.lifeLossGlow = null;
+      }
     }
   }
   destroy() {
