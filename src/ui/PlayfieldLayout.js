@@ -972,10 +972,13 @@ export class SinglePlayerHud {
     playAgain.cursor = "pointer";
     const buttonX = -GAME_OVER_PLAY_AGAIN_WIDTH / 2;
     const buttonY =
+      height / 2 + GAME_OVER_PLAY_AGAIN_GAP;
+    this.gameOverPlacementY =
       top +
       92 +
       rows.length * GAME_OVER_PANEL_ROW_HEIGHT +
-      GAME_OVER_PLAY_AGAIN_GAP;
+      GAME_OVER_PLAY_AGAIN_GAP +
+      GAME_OVER_PLAY_AGAIN_HEIGHT / 2;
     const buttonFace = new PIXI.Graphics()
       .roundRect(
         buttonX,
@@ -986,6 +989,7 @@ export class SinglePlayerHud {
       )
       .fill(COLORS.PANEL_ACCENT)
       .stroke({ width: 2, color: COLORS.MENU_LOGO_TEXT });
+    buttonFace.label = "gameOverActionFace";
     const buttonLabel = new PIXI.Text({
       text: "PLAY AGAIN",
       style: {
@@ -999,6 +1003,17 @@ export class SinglePlayerHud {
     buttonLabel.anchor.set(0.5);
     buttonLabel.position.set(0, buttonY + GAME_OVER_PLAY_AGAIN_HEIGHT / 2);
     playAgain.addChild(buttonFace, animateText(buttonLabel));
+    playAgain.filters = [
+      new PIXI.filters.DropShadowFilter({
+        color: "#00aa00",
+        alpha: 0.7,
+        blur: 6,
+        distance: 4,
+        rotation: 90,
+        quality: 4,
+        padding: 16,
+      }),
+    ];
     playAgain.on("pointertap", (event) => {
       event.stopPropagation?.();
       if (this.gameOverRestartRemaining > 0) return;
@@ -1008,9 +1023,9 @@ export class SinglePlayerHud {
         originalEvent: event,
       });
     });
-    panel.addChild(playAgain);
-
-    this.gameOverMessage.addChild(panel);
+    // Keep the action outside the result panel: series placement text can use
+    // the panel's lower area without being covered by a lobby action.
+    this.gameOverMessage.addChild(panel, playAgain);
     this.gameOverEnterElapsed = 0;
     this.gameOverRestartRemaining = GAME_OVER_RESTART_INPUT_DELAY_MS;
     this.gameOverPlayAgain = playAgain;
