@@ -1285,6 +1285,10 @@ export class SinglePlayerHud {
     showHold = true,
     showQueue = true,
   }) {
+    // Callers that deliberately have no objectives may pass null. Normalize it
+    // here so the HUD always treats that as an empty objective set.
+    goals = goals || {};
+    goalProgress = goalProgress || {};
     this.holdPanel.visible = showHold;
     this.holdPanel.eventMode = showHold ? "static" : "none";
     this.nextPanel.visible = showQueue;

@@ -449,7 +449,7 @@ export class GameManager {
   initialLives() {
     const configuredLives = Number(this.session?.roomRules?.series?.lives);
     if (Number.isFinite(configuredLives)) return Math.max(1, Math.floor(configuredLives));
-    return 1 + Math.max(0, Math.floor(Number(this.session?.roomRules?.win?.extraLives) || 0));
+    return 1 + Math.max(0, Math.floor(Number(this.winningConditions()?.extraLives) || 0));
   }
   consumeLife() {
     this.lives -= 1;
@@ -573,8 +573,14 @@ export class GameManager {
       : 0;
     this.level = this.startLevel + Math.max(byLines, bySeconds) + 1;
   }
+  winningConditions() {
+    // Score and Survival never evaluate or display room win objectives.
+    return ["versus", "survival"].includes(this.session?.roomRules?.matchMode)
+      ? {}
+      : this.session?.roomRules?.win;
+  }
   checkWinConditions() {
-    const win = this.session?.roomRules?.win;
+    const win = this.winningConditions();
     if (!win || this.state !== GameState.PLAYING) return;
     const active = [];
     if (win.score) active.push(this.score >= Number(win.scoreTarget));
@@ -806,7 +812,7 @@ export class GameManager {
       score: this.score,
       lines: this.lines,
       level: this.level,
-      goals: this.session?.roomRules?.win,
+      goals: this.winningConditions(),
       goalProgress: this.goalProgress,
       trashLevel: this.trash?.level || 0,
       trashCleared: !this.trash?.boardHasTrash(this.board) && !this.physics?.hasTrash(),
