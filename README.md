@@ -4,7 +4,7 @@
 
 **You can play [PhysTrix Showdown in your browser](https://pi-dev.com/phystrix).**
 
-The game is also available on Discord as embedded activity.\
+The game is also available on **Discord** as **embedded activity**. [See the game page](https://discord.com/discovery/applications/1542325259095642243) \
 Join the [PhysTrix Discord community](https://discord.com/invite/MfrU9tJDnZ) to
 find other players and keep up with the game.
 
