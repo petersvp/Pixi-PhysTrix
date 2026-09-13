@@ -223,13 +223,15 @@ export class SinglePlayerHud {
     overlayRoot = root,
     overlayLayout = layout,
     material,
+    gameOverOnly = false,
   }) {
     this.root = root;
     this.layout = layout;
     this.overlayRoot = overlayRoot;
     this.overlayLayout = overlayLayout;
     this.material = material;
-    this.create();
+    this.gameOverOnly = gameOverOnly;
+    if (!gameOverOnly) this.create();
     this.createOverlays();
   }
 
@@ -677,6 +679,10 @@ export class SinglePlayerHud {
     this.gameOverMessage.visible = false;
     this.overlay.addChild(this.gameOverMessage);
 
+    // Profile and results-only screens instantiate only this Game Over
+    // overlay; no playfield HUD, countdown, or callout objects are created.
+    if (this.gameOverOnly) return;
+
     this.callout = new PIXI.Container();
     this.callout.label = "clearCallout";
     this.calloutMain = new PIXI.Text({
@@ -846,16 +852,21 @@ export class SinglePlayerHud {
     }).draw(panel, points.reverse());
   }
 
-  showGameOver(score = 0, summary = {}) {
-    this.message.visible = false;
+  showGameOver(score = 0, summary = {}, {
+    title = null,
+    titleColor = COLORS.MENU_LOGO,
+    scoreSuffix = "PTS.",
+  } = {}) {
+    if (this.message) this.message.visible = false;
     // A completed report replaces any transient clear or combo announcement.
-    this.resetCallout();
+    if (!this.gameOverOnly) this.resetCallout();
     this.gameOverMessage
       .removeChildren()
       .forEach((child) => child.destroy({ children: true }));
 
     const baseClears = summary.baseClears || [];
-    const rows = [
+    const usesCustomRows = Array.isArray(summary.rows);
+    const rows = usesCustomRows ? summary.rows : [
       ["FIGURES DROPPED", summary.figuresDropped || 0],
       ["AVG. DROP RATE", `${(summary.dropsPerSecond || 0).toFixed(2)} / SEC`],
       ...baseClears.map(({ label, count }) => [label, count]),
@@ -864,12 +875,14 @@ export class SinglePlayerHud {
         biggest ? `${count} (${biggest})` : count,
       ]),
     ];
-    const spins = summary.spins || {};
-    if (spins.all) rows.push(["ALL SPINS", spins.all]);
-    if (summary.spawnedTypes?.has("T")) rows.push(["T-SPINS", spins.t || 0]);
-    if (spins.tTriple) rows.push(["T-SPIN TRIPLES", spins.tTriple]);
-    if (spins.penta) rows.push(["PENTASPINS", spins.penta]);
-    if (spins.mega) rows.push(["MEGASPINS", spins.mega]);
+    if (!usesCustomRows) {
+      const spins = summary.spins || {};
+      if (spins.all) rows.push(["ALL SPINS", spins.all]);
+      if (summary.spawnedTypes?.has("T")) rows.push(["T-SPINS", spins.t || 0]);
+      if (spins.tTriple) rows.push(["T-SPIN TRIPLES", spins.tTriple]);
+      if (spins.penta) rows.push(["PENTASPINS", spins.penta]);
+      if (spins.mega) rows.push(["MEGASPINS", spins.mega]);
+    }
 
     const width = GAME_OVER_PANEL_WIDTH;
     const height = Math.max(
@@ -899,15 +912,16 @@ export class SinglePlayerHud {
       return text;
     };
 
-    const gameWord = this.gameOverTitle("GAME", COLORS.MENU_LOGO);
-    const overWord = this.gameOverTitle("OVER", COLORS.MENU_LOGO_TEXT);
+    const gameWord = this.gameOverTitle(title || "GAME", title ? titleColor : COLORS.MENU_LOGO);
+    const overWord = this.gameOverTitle(title ? "" : "OVER", COLORS.MENU_LOGO_TEXT);
     this.gameOverTitleWords = { gameWord, overWord };
-    const titleWidth = gameWord.width + overWord.width + 12;
+    const titleWidth = gameWord.width + (title ? 0 : overWord.width + 12);
     gameWord.anchor.set(0, 0.5);
     overWord.anchor.set(0, 0.5);
     const top = -height / 2 + GAME_OVER_PANEL_PADDING + 28;
     gameWord.position.set(-titleWidth / 2, top);
     overWord.position.set(-titleWidth / 2 + gameWord.width + 12, top);
+    overWord.visible = !title;
     panel.addChild(animateText(gameWord), animateText(overWord));
 
     const scoreLabel = new PIXI.Text({
@@ -920,8 +934,8 @@ export class SinglePlayerHud {
         stroke: { color: COLORS.CALLOUT_STROKE, width: 3 },
       },
     });
-    const scoreSuffix = new PIXI.Text({
-      text: "PTS.",
+    const scoreSuffixLabel = new PIXI.Text({
+      text: scoreSuffix,
       style: {
         fontFamily: "Quantico",
         fontSize: GAME_OVER_SCORE_SUFFIX_FONT_SIZE,
@@ -929,15 +943,15 @@ export class SinglePlayerHud {
         fill: COLORS.HUD_LABEL,
       },
     });
-    const scoreWidth = scoreLabel.width + scoreSuffix.width + 8;
+    const scoreWidth = scoreLabel.width + scoreSuffixLabel.width + 8;
     scoreLabel.anchor.set(0, 0.5);
-    scoreSuffix.anchor.set(0, 0.5);
+    scoreSuffixLabel.anchor.set(0, 0.5);
     scoreLabel.position.set(-scoreWidth / 2, top + 52);
-    scoreSuffix.position.set(
+    scoreSuffixLabel.position.set(
       -scoreWidth / 2 + scoreLabel.width + 8,
       top + 56,
     );
-    panel.addChild(animateText(scoreLabel), animateText(scoreSuffix));
+    panel.addChild(animateText(scoreLabel), animateText(scoreSuffixLabel));
 
     rows.forEach(([label, value], index) => {
       const y = top + 92 + index * GAME_OVER_PANEL_ROW_HEIGHT;
@@ -973,6 +987,8 @@ export class SinglePlayerHud {
     const buttonX = -GAME_OVER_PLAY_AGAIN_WIDTH / 2;
     const buttonY =
       height / 2 + GAME_OVER_PLAY_AGAIN_GAP;
+    this.gameOverPanelHeight = height;
+    this.gameOverActionOutsideButtonY = buttonY;
     this.gameOverPlacementY =
       top +
       92 +
@@ -1003,8 +1019,7 @@ export class SinglePlayerHud {
     buttonLabel.anchor.set(0.5);
     buttonLabel.position.set(0, buttonY + GAME_OVER_PLAY_AGAIN_HEIGHT / 2);
     playAgain.addChild(buttonFace, animateText(buttonLabel));
-    playAgain.filters = [
-      new PIXI.filters.DropShadowFilter({
+    const actionShadow = new PIXI.filters.DropShadowFilter({
         color: "#00aa00",
         alpha: 0.7,
         blur: 6,
@@ -1012,8 +1027,8 @@ export class SinglePlayerHud {
         rotation: 90,
         quality: 4,
         padding: 16,
-      }),
-    ];
+      });
+    playAgain.filters = [actionShadow];
     playAgain.on("pointertap", (event) => {
       event.stopPropagation?.();
       if (this.gameOverRestartRemaining > 0) return;
@@ -1029,7 +1044,7 @@ export class SinglePlayerHud {
     this.gameOverEnterElapsed = 0;
     this.gameOverRestartRemaining = GAME_OVER_RESTART_INPUT_DELAY_MS;
     this.gameOverPlayAgain = playAgain;
-    this.gameOverAction = { buttonFace, buttonLabel, onTrigger: null };
+    this.gameOverAction = { buttonFace, buttonLabel, actionShadow, onTrigger: null };
     this.gameOverTextEntries = animatedText.map((text, index) => ({
       text,
       delay: index * GAME_OVER_TEXT_ENTER_STAGGER_MS,
@@ -1072,7 +1087,15 @@ export class SinglePlayerHud {
     title.overWord.x = left + title.gameWord.width + gap;
   }
 
-  replaceGameOverAction({ label, onTrigger, fill = 0xa8ff77, textColor = 0x061523, immediate = false } = {}) {
+  replaceGameOverAction({
+    label,
+    onTrigger,
+    fill = COLORS.PANEL_ACCENT,
+    textColor = COLORS.APP_BACKGROUND,
+    immediate = false,
+    insidePanel = false,
+    shadow = true,
+  } = {}) {
     const action = this.gameOverAction;
     if (!action) return;
     this.gameOverPlayAgain.visible = true;
@@ -1083,6 +1106,10 @@ export class SinglePlayerHud {
       this.gameOverPlayAgain.alpha = 1;
     }
     if (label) action.buttonLabel.text = label;
+    const buttonY = insidePanel
+      ? this.gameOverPanelHeight / 2 - GAME_OVER_PLAY_AGAIN_HEIGHT - GAME_OVER_PANEL_PADDING 
+      : this.gameOverActionOutsideButtonY;
+    action.buttonLabel.y = buttonY + GAME_OVER_PLAY_AGAIN_HEIGHT / 2;
     action.buttonLabel.style.fill = textColor;
     action.buttonFace
       .clear()
@@ -1095,6 +1122,7 @@ export class SinglePlayerHud {
       )
       .fill(fill)
       .stroke({ width: 2, color: COLORS.MENU_LOGO_TEXT });
+    this.gameOverPlayAgain.filters = shadow ? [action.actionShadow] : null;
     action.onTrigger = onTrigger || null;
   }
 
@@ -1246,6 +1274,8 @@ export class SinglePlayerHud {
       );
       if (amount >= 1) this.countdownEnterElapsed = undefined;
     }
+    // Results-only HUDs intentionally do not create scoring callouts.
+    if (!this.callout) return;
     if (this.calloutLife <= 0) return;
     this.calloutLife -= deltaMS;
     this.calloutPopTime += deltaMS;

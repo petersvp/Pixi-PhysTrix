@@ -1,4 +1,12 @@
-**PhysTrix** is a chaotic physics-based block-dropping stacker built around the moment a clean stack **stops being stable**.
+**PIXI-PhysTrix** is the open-source core of our game, **PhysTrix Showdown** - a PVP online multiplayer chaotic physics-based block-dropping stacker built around the moment a clean stack **stops being stable**.
+
+![PhysTrix Showdown Logo](https://pi-dev.com/phystrix/branding/logo-showdown.png)
+
+You can play [PhysTrix Showdown in your browser](https://pi-dev.com/phystrix).
+
+The game is also available on Discord as embedded activity.\
+Join the [PhysTrix Discord community](https://discord.com/invite/MfrU9tJDnZ) to
+find other players and keep up with the game.
 
 It's like playing **that one game**, with all of its modern controls and mechanics, as seen in games like TETR.IO and Tetris Effect: Connected, until the moment of chaos: **everything is affected by gravity**. Wrong stack? It will collapse. But you have well balanced control. And your Tetris skills will - mostly, kinda, maybe - transfer here! 
 

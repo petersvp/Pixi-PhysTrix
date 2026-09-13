@@ -18,6 +18,11 @@ export class InputManager {
     this.gamepadPressed = new Set();
     this.keydown = (e) => {
       const key = e.code || e.key;
+      // Gameplay keys must stay inside the embedded game. In particular,
+      // arrows and Space would otherwise scroll the Itch.io parent frame.
+      // Resolve the bindings at event time because controls can be remapped.
+      const isGameplayKey = Object.values(KEYBINDS).some((keys) => keys.includes(key));
+      if (isGameplayKey && e.cancelable) e.preventDefault();
       if (!this.down.has(key)) this.pressed.add(key);
       this.down.add(key);
     };
