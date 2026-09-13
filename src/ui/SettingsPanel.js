@@ -334,7 +334,7 @@ export class SettingsPanel {
     this.text(labelFor(action), 270, y + 5, 11);
     const key = KEYBINDS[action].join(" / ");
     const pad = gamepadBindingLabel(GAMEPAD_BINDS[action]);
-    this.button(`KEY: ${key}`, 390, y, SETTINGS_BIND_BUTTON_WIDTH, () =>
+    this.button(`${key}`, 390, y, SETTINGS_BIND_BUTTON_WIDTH, () =>
       this.beginCapture(action, "key"), { height: 26 },
     );
     this.button(`PAD: ${pad}`, 510, y, SETTINGS_BIND_PAD_BUTTON_WIDTH, () =>
