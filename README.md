@@ -1,8 +1,8 @@
 **PIXI-PhysTrix** is the open-source core of our game, **PhysTrix Showdown** - a PVP online multiplayer chaotic physics-based block-dropping stacker built around the moment a clean stack **stops being stable**.
 
-![PhysTrix Showdown Logo](https://pi-dev.com/phystrix/branding/logo-showdown.png)
+<img src="https://pi-dev.com/phystrix/branding/logo-showdown.png" width=20%>
 
-You can play [PhysTrix Showdown in your browser](https://pi-dev.com/phystrix).
+**You can play [PhysTrix Showdown in your browser](https://pi-dev.com/phystrix).**
 
 The game is also available on Discord as embedded activity.\
 Join the [PhysTrix Discord community](https://discord.com/invite/MfrU9tJDnZ) to
