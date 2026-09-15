@@ -454,6 +454,13 @@ export class PhysicsWorld {
   hasTrash() {
     return this.bodies.some((body) => body.GetUserData()?.trash);
   }
+  hasTrashOnRow(row) {
+    if (!Number.isInteger(row)) return false;
+    return this.bodies.some((body) => {
+      if (!body.GetUserData()?.trash) return false;
+      return Math.round(body.GetPosition().y - 0.5) === row;
+    });
+  }
   clearLockedBodies() {
     this.bodies.forEach((body) => {
       this.onLockedPolyominoDestroyed?.({

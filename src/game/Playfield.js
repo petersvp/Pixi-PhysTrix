@@ -60,9 +60,10 @@ export class Playfield {
     width = GAME_VIEWPORT_WIDTH,
     height = GAME_VIEWPORT_HEIGHT,
     skinBaseUrl = "minoskins",
+    queueSize,
   }) {
     this.skinBaseUrl = skinBaseUrl;
-    this.layout = createPlayfieldLayout({ cols, rows, cell, width, height });
+    this.layout = createPlayfieldLayout({ cols, rows, cell, width, height, queueSize });
     this.localLayout = localLayout(this.layout);
     this.root = new PIXI.Container();
     this.root.label = "playfield";

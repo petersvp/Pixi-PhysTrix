@@ -89,6 +89,7 @@ import {
   NEXT_PREVIEW_SCALE,
   NEXT_PREVIEW_Y,
   NEXT_PREVIEW_SLOT_HEIGHT,
+  NEXT_QUEUE_MAX_SLOTS,
   NEXT_QUEUE_SLOTS,
   NEXT_SLOT_SPACING,
   PREVIEW_SLOT_INSET,
@@ -115,6 +116,7 @@ export const createPlayfieldLayout = ({
   cell,
   width = GAME_VIEWPORT_WIDTH,
   height = GAME_VIEWPORT_HEIGHT,
+  queueSize = NEXT_QUEUE_SLOTS,
 }) => {
   const boardWidth = cols * cell;
   const boardHeight = rows * cell;
@@ -125,11 +127,16 @@ export const createPlayfieldLayout = ({
   const y = 72 + (610 - scaledHeight) / 2;
   const sideWidth = HUD_SIDE_WIDTH;
   const panelInset = 18;
-  const nextHeight =
-    NEXT_PREVIEW_Y +
-    (NEXT_QUEUE_SLOTS - 1) * NEXT_SLOT_SPACING +
-    NEXT_PREVIEW_SLOT_HEIGHT +
-    NEXT_PANEL_BOTTOM_PADDING;
+  const nextQueueSize = Math.max(
+    0,
+    Math.min(NEXT_QUEUE_MAX_SLOTS, Math.floor(Number(queueSize) || 0)),
+  );
+  const nextHeight = nextQueueSize
+    ? NEXT_PREVIEW_Y +
+      (nextQueueSize - 1) * NEXT_SLOT_SPACING +
+      NEXT_PREVIEW_SLOT_HEIGHT +
+      NEXT_PANEL_BOTTOM_PADDING
+    : 0;
   const nextDetached = nextHeight > scaledHeight;
   const holdDetached = HOLD_PANEL_HEIGHT > scaledHeight;
   const leftAreaHeight =
@@ -180,6 +187,7 @@ export const createPlayfieldLayout = ({
       y: nextDetached ? y + (scaledHeight - nextHeight) / 2 : y + panelInset,
       width: sideWidth,
       height: nextHeight,
+      queueSize: nextQueueSize,
       detached: nextDetached,
     },
     garbage: {
@@ -599,7 +607,7 @@ export class SinglePlayerHud {
       },
     ];
     this.nextPreviewSlots = Array.from(
-      { length: NEXT_QUEUE_SLOTS },
+      { length: this.layout.next.queueSize },
       (_, index) => ({
         x: PREVIEW_SLOT_INSET,
         y: NEXT_PREVIEW_Y + index * NEXT_SLOT_SPACING,

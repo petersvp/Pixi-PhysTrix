@@ -128,6 +128,7 @@ export class GameManager {
       rows: this.rows,
       cell: CELL,
       skinBaseUrl: this.session?.skinBaseUrl,
+      queueSize: this.session?.roomRules?.mutators?.queueSize,
     });
     this.playfield.loadSkin(this.session?.skin);
     const chain = this.session?.roomRules?.chain || {};
@@ -579,6 +580,9 @@ export class GameManager {
       ? {}
       : this.session?.roomRules?.win;
   }
+  bottomTrashLineCleared() {
+    return this.trash?.bottomLineCleared(this.board, this.gameplay?.physics);
+  }
   checkWinConditions() {
     const win = this.winningConditions();
     if (!win || this.state !== GameState.PLAYING) return;
@@ -591,7 +595,7 @@ export class GameManager {
     if (win.megaspins) active.push(this.goalProgress.megaspins >= Number(win.megaspinCount));
     if (win.perfectClears) active.push(this.goalProgress.perfectClears >= Number(win.perfectClearCount));
     if (win.trashWin === "reach-level") active.push(this.trash.level >= Number(win.trashLevel));
-    if (win.trashWin === "clear-bottom-line") active.push(!this.trash.boardHasTrash(this.board) && !this.physics?.hasTrash());
+    if (win.trashWin === "clear-bottom-line") active.push(this.bottomTrashLineCleared());
     if (active.length && active.every(Boolean)) {
       this.state = GameState.WON;
       this.active = null;
@@ -815,7 +819,7 @@ export class GameManager {
       goals: this.winningConditions(),
       goalProgress: this.goalProgress,
       trashLevel: this.trash?.level || 0,
-      trashCleared: !this.trash?.boardHasTrash(this.board) && !this.physics?.hasTrash(),
+      trashCleared: this.bottomTrashLineCleared(),
       lives: this.lives,
       elapsedMs: this.elapsedMs,
       hold: this.hold,

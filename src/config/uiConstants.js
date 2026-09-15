@@ -114,6 +114,9 @@ export const NEXT_PANEL_X_OFFSET = 4;
 // many rendered board cells and render it as a complete rounded panel.
 export const NEXT_PANEL_DETACHED_BLOCK_OFFSET = 1;
 export const NEXT_QUEUE_SLOTS = 5;
+// The lobby permits 0–6 queued polyominoes. NEXT_QUEUE_SLOTS remains the
+// default; this upper bound lets the HUD grow for the sixth configured slot.
+export const NEXT_QUEUE_MAX_SLOTS = 6;
 export const NEXT_PREVIEW_SCALE = 0.76;
 export const NEXT_PREVIEW_Y = 50;
 export const NEXT_SLOT_SPACING = 68;

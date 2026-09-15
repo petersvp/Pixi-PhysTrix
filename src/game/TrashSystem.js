@@ -66,6 +66,11 @@ export class TrashSystem {
       0,
       Math.min(MAX_TRASH_LEVEL, this.rows - 2, Number(level) || 0),
     );
+    // This is the objective's target row for the currently spawned trash
+    // field. It is deliberately captured at generation time: recalculating
+    // from remaining trash would make "clear bottom line" impossible until
+    // every trash mino had vanished.
+    this.bottomRow = null;
     // Settings use HTML colour strings. Gameplay stores only a palette index
     // on every mino; this resolved palette exists solely at the render edge.
     const chain = roomRules?.chain || {};
@@ -80,8 +85,8 @@ export class TrashSystem {
 
   cells() {
     const mode = this.rules.trashPatternMode || (this.rules.trashDensityMode === "perlin" ? "perlin" : "random");
-    if (mode === "fixed" || mode === "levels") return this.patternCells(mode);
-    if (mode === "scattered") return this.scatteredCells();
+    if (mode === "fixed" || mode === "levels") return this.rememberBottomRow(this.patternCells(mode));
+    if (mode === "scattered") return this.rememberBottomRow(this.scatteredCells());
     const cells = [];
     const level = Math.min(
       Math.min(MAX_TRASH_LEVEL, this.rows - 2),
@@ -127,6 +132,13 @@ export class TrashSystem {
         baseColor: TRASH_MINO_COLOR,
       });
     }
+    return this.rememberBottomRow(cells);
+  }
+
+  rememberBottomRow(cells) {
+    this.bottomRow = cells.length
+      ? Math.max(...cells.map((cell) => cell.y))
+      : null;
     return cells;
   }
 
@@ -253,6 +265,12 @@ export class TrashSystem {
     let found = false;
     board.forEachCell((tile) => { if (tile.trash) found = true; });
     return found;
+  }
+
+  bottomLineCleared(board, physics = null) {
+    if (!Number.isInteger(this.bottomRow)) return false;
+    if (physics) return !physics.hasTrashOnRow(this.bottomRow);
+    return !board.cells[this.bottomRow]?.some((tile) => tile?.trash);
   }
 
   advance() {
