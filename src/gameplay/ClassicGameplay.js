@@ -17,6 +17,7 @@ import {
   guidelineSpinScore,
 } from "../game/Scoring.js";
 import { chainName, findColorChainGroups } from "../game/ChainSystem.js";
+import { godEssenceValue, isDifficultClear, pmOrderAttackValue } from "../game/AttackValue.js";
 import {
   CLASSIC_VANISH_DURATION_MS,
   CELL,
@@ -54,6 +55,7 @@ export class ClassicGameplay extends GameplayContract {
     this.resolve = null;
     this.pendingSpin = "";
     this.pendingSpinOrder = 4;
+    this.backToBack = false;
   }
   spawnTrash(game, trash) {
     if (trash.enabled) trash.populateBoard(game.board);
@@ -122,6 +124,7 @@ export class ClassicGameplay extends GameplayContract {
     }
     if (initial) {
       game.classicCombo = 0;
+      this.backToBack = false;
       this.awardSpinWithoutClear(game);
     }
     this.resolve = null;
@@ -165,6 +168,26 @@ export class ClassicGameplay extends GameplayContract {
       guidelineComboScore(game.classicCombo, game.level) +
       (allClear ? guidelineAllClearScore(lines, game.level) : 0);
     game.score += pointsAwarded;
+    const difficult = isDifficultClear(lines, spin);
+    const backToBack = difficult && this.backToBack;
+    this.backToBack = difficult;
+    // Core numbers the first successful clear as combo 1; attack tables
+    // number it as combo 0.
+    const attack = pmOrderAttackValue(
+      lines,
+      spin,
+      game.session?.roomRules?.pvp,
+      game.classicCombo - 1,
+      backToBack,
+    );
+    game.addGodEssence(godEssenceValue(
+      lines,
+      spin,
+      game.session?.roomRules?.pvp,
+      game.classicCombo - 1,
+      backToBack,
+    ));
+    if (attack) game.onAttack?.({ attackType: "attachments", value: attack, source: game });
     game.updateSpeed();
     if (game.classicCombo >= (Number(game.session?.roomRules?.win?.comboLength) || Infinity))
       game.goalProgress.combos += 1;

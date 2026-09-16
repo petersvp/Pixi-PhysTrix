@@ -6,7 +6,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 
-const PORT = 8080;
+const PORT = 8081;
 const ROOT = resolve(".");
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",

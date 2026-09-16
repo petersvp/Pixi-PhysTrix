@@ -112,6 +112,7 @@ export class TrashSystem {
               x,
               y,
               trash: true,
+              material: "trash",
               colorIndex,
               baseColor: TRASH_MINO_COLOR,
             });
@@ -128,6 +129,7 @@ export class TrashSystem {
         x: Math.floor(this.random() * this.cols),
         y: this.rows - 1,
         trash: true,
+        material: "trash",
         colorIndex,
         baseColor: TRASH_MINO_COLOR,
       });
@@ -186,6 +188,7 @@ export class TrashSystem {
       x,
       y,
       trash: true,
+      material: "trash",
       colorIndex: this.colorMode && this.colors.length
         ? Math.floor(this.random() * this.colors.length)
         : -1,
@@ -236,6 +239,7 @@ export class TrashSystem {
           x,
           y: this.rows - 1 - rowFromBottom,
           trash: true,
+          material: "trash",
           colorIndex,
           baseColor: TRASH_MINO_COLOR,
         });
@@ -252,6 +256,7 @@ export class TrashSystem {
     this.cells().forEach(({ x, y, colorIndex, baseColor }) =>
       board.set(x, y, {
         colorIndex,
+        material: "trash",
         baseColor,
         trash: true,
         pieceId: `trash-${x}-${y}-${this.level}`,

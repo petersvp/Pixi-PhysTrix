@@ -21,10 +21,11 @@ export const polyominoCentroid = (cells) => ({
 });
 
 export class Mino {
-  constructor({ x, y, colorIndex = -1, ...data }) {
+  constructor({ x, y, colorIndex = -1, material = "default", ...data }) {
     this.x = x;
     this.y = y;
     this.colorIndex = colorIndex;
+    this.material = material || "default";
     Object.assign(this, data);
   }
   clone() {
@@ -45,6 +46,7 @@ export class Polyomino {
       : this.matrix.flatMap((row, y) =>
           row.flatMap((filled, x) => (filled ? [new Mino({ x, y })] : [])),
         );
+    this.extraMinos = this.minos.filter((mino) => !this.matrix[mino.y]?.[mino.x]);
     const fallbackColorIndex = Number.isInteger(source.colorIndex)
       ? source.colorIndex
       : this.minos[0]?.colorIndex ?? -1;
@@ -117,6 +119,8 @@ export class Polyomino {
         })(),
       ),
     );
+    if (matrix === this.matrix && this.extraMinos?.length)
+      this.extraMinos.forEach((mino) => cells.push({ ...mino, x: x + mino.x, y: y + mino.y, color: mino.colorIndex < 0 ? this.color : this.palette?.[mino.colorIndex] }));
     return cells;
   }
   visualCenter() {

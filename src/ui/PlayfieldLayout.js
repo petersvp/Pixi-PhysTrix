@@ -231,6 +231,7 @@ export class SinglePlayerHud {
     overlayRoot = root,
     overlayLayout = layout,
     material,
+    previewMaterials = {},
     gameOverOnly = false,
   }) {
     this.root = root;
@@ -238,6 +239,7 @@ export class SinglePlayerHud {
     this.overlayRoot = overlayRoot;
     this.overlayLayout = overlayLayout;
     this.material = material;
+    this.previewMaterials = previewMaterials;
     this.gameOverOnly = gameOverOnly;
     if (!gameOverOnly) this.create();
     this.createOverlays();
@@ -623,8 +625,8 @@ export class SinglePlayerHud {
     // this.createPreviewSlots(this.nextPanel, this.nextPreviewSlots, "nextPreviewSlots");
     this.holdPanel.addChild(this.holdPreview);
     this.nextPanel.addChild(this.nextPreview);
-    this.holdRenderer = new PreviewPanel(this.layout.hold.width, this.material);
-    this.nextRenderer = new PreviewPanel(this.layout.next.width, this.material);
+    this.holdRenderer = new PreviewPanel(this.layout.hold.width, this.material, this.previewMaterials);
+    this.nextRenderer = new PreviewPanel(this.layout.next.width, this.material, this.previewMaterials);
   }
 
   setHoldAction(callback) {

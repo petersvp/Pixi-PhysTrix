@@ -10,11 +10,12 @@ import { resolvePolyominoDefinition } from "../game/PolyominoDefinitions.js";
 import { MinoQuadRenderer } from "../render/MinoQuadRenderer.js";
 
 export class PreviewPanel {
-  constructor(width, material) {
+  constructor(width, material, materials = {}) {
     this.width = width;
     // Preview minos use their owning Playfield material, not the editor's
     // global default, so future versus players may preview different skins.
     this.quads = new MinoQuadRenderer(material);
+    this.specialQuads = new Map(Object.entries(materials).map(([name, settings]) => [name, new MinoQuadRenderer(settings)]));
     this.targetSignatures = new WeakMap();
   }
 
@@ -69,7 +70,7 @@ export class PreviewPanel {
           ((minY + maxY + 1) * CELL * previewScale) / 2,
       );
       const occupied = new Set(cells.map((cell) => `${cell.x},${cell.y}`));
-      this.quads.draw(node, cells, source.color ?? definition.color, (cell) => ({
+      const linksFor = (cell) => ({
         top: occupied.has(`${cell.x},${cell.y - 1}`),
         right: occupied.has(`${cell.x + 1},${cell.y}`),
         bottom: occupied.has(`${cell.x},${cell.y + 1}`),
@@ -78,7 +79,25 @@ export class PreviewPanel {
         topRight: occupied.has(`${cell.x + 1},${cell.y - 1}`),
         bottomRight: occupied.has(`${cell.x + 1},${cell.y + 1}`),
         bottomLeft: occupied.has(`${cell.x - 1},${cell.y + 1}`),
-      }));
+      });
+      const byMaterial = new Map();
+      cells.forEach((cell) => {
+        const key = cell.material || "default";
+        const group = byMaterial.get(key) || [];
+        group.push(cell);
+        byMaterial.set(key, group);
+      });
+      byMaterial.forEach((group, materialName) => {
+        // MinoQuadRenderer clears its own target before drawing. Each material
+        // therefore needs a dedicated child, otherwise the final material
+        // group erases every ordinary mino in this preview.
+        const materialLayer = new PIXI.Container();
+        materialLayer.label = `previewMaterial:${materialName}`;
+        node.addChild(materialLayer);
+        (this.specialQuads.get(materialName) || this.quads).draw(
+          materialLayer, group, source.color ?? definition.color, linksFor,
+        );
+      });
       target.addChild(node);
     });
   }

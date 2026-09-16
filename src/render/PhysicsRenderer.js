@@ -25,10 +25,11 @@ const lightenColor = (color, amount) => {
 };
 
 export class PhysicsRenderer {
-  constructor(layer, material, trashMaterial = material) {
+  constructor(layer, material, trashMaterial = material, specialMaterials = {}) {
     this.layer = layer;
     this.quads = new MinoQuadRenderer(material, { cellSize: 1 });
     this.trashQuads = new MinoQuadRenderer(trashMaterial, { cellSize: 1 });
+    this.specialQuads = new Map(Object.entries(specialMaterials).map(([name, settings]) => [name, new MinoQuadRenderer(settings, { cellSize: 1 })]));
     this.bodyLayer = new PIXI.Container();
     this.bodyLayer.label = "physicsBodyLayer";
     this.markedLayer = new PIXI.Container();
@@ -74,15 +75,22 @@ export class PhysicsRenderer {
       }
       if (node.visualSignature !== signature) {
         const centroid = polyominoCentroid(data.cells);
-        (data.trash ? this.trashQuads : this.quads).draw(
-          node,
-          data.cells.map((cell) => ({ ...cell, color: this.colorFor(cell, data.color) })),
-          data.color,
-          (cell) => this.linksForCell(data, cell),
-          1,
-          -centroid.x,
-          -centroid.y,
-        );
+        node.removeChildren().forEach((child) => child.destroy({ children: true }));
+        const cells = data.cells.map((cell) => ({ ...cell, color: this.colorFor(cell, data.color) }));
+        const groups = new Map();
+        cells.forEach((cell) => {
+          const key = data.trash ? "trash" : cell.material || "default";
+          const group = groups.get(key) || [];
+          group.push(cell);
+          groups.set(key, group);
+        });
+        groups.forEach((group, materialName) => {
+          const layer = new PIXI.Container();
+          node.addChild(layer);
+          (materialName === "trash" ? this.trashQuads : this.specialQuads.get(materialName) || this.quads).draw(
+            layer, group, data.color, (cell) => this.linksForCell(data, cell), 1, -centroid.x, -centroid.y,
+          );
+        });
         node.visualSignature = signature;
       }
       // // Ensure mass label exists as a child
@@ -163,6 +171,7 @@ export class PhysicsRenderer {
         cell.y,
         cell.marked,
         cell.colorIndex,
+        cell.material,
         cell.broken,
         cell.visualLinks,
       ]),

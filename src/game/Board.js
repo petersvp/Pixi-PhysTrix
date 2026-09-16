@@ -116,6 +116,7 @@ export class Board {
       if (y < this.rows)
         this.set(x, y, {
           colorIndex: Number.isInteger(cell.colorIndex) ? cell.colorIndex : -1,
+          material: cell.material || "default",
           baseColor: cell.baseColor ?? piece.color,
           pieceId:
             componentCount > 1

@@ -10,6 +10,7 @@
 
 import { GameplayContract } from "./GameplayContract.js";
 import { GameManager } from "../game/GameManager.js";
+import { godEssenceValue, isDifficultClear, pmOrderAttackValue } from "../game/AttackValue.js";
 import {
   guidelineAllClearScore,
   guidelineComboScore,
@@ -76,6 +77,7 @@ export class PhysicsGameplay extends GameplayContract {
   reset() {
     this.physics.clear();
     this.combo = 0;
+    this.backToBack = false;
     this.pendingSpin = "";
     this.pendingSpinOrder = 4;
     this.awaitingPostLockScan = false;
@@ -135,7 +137,10 @@ export class PhysicsGameplay extends GameplayContract {
       const scan = this.physics.scanImmediately();
       // This lock already received its post-lock scan, so do not let a later
       // periodic scan incorrectly reset the combo while its vanish resolves.
-      if (!scan.rows.length) this.combo = 0;
+      if (!scan.rows.length) {
+        this.combo = 0;
+        this.backToBack = false;
+      }
       this.awaitingPostLockScan = false;
     }
     if (spawn) game.spawn();
@@ -203,7 +208,10 @@ export class PhysicsGameplay extends GameplayContract {
     // Combo expiry is evaluated only by the first actual frame-rule scan after
     // a lock. Empty ticker frames and the vanish delay cannot reset it.
     if (this.awaitingPostLockScan && result.scanned) {
-      if (!result.rows.length) this.combo = 0;
+      if (!result.rows.length) {
+        this.combo = 0;
+        this.backToBack = false;
+      }
       this.awaitingPostLockScan = false;
     }
     if (result.broken.length) {
@@ -301,6 +309,24 @@ export class PhysicsGameplay extends GameplayContract {
       guidelineComboScore(this.combo, game.level) +
       (allClear ? guidelineAllClearScore(lines, game.level) : 0);
     game.score += pointsAwarded;
+    const difficult = isDifficultClear(lines, spin);
+    const backToBack = difficult && this.backToBack;
+    this.backToBack = difficult;
+    const attack = pmOrderAttackValue(
+      lines,
+      spin,
+      game.session?.roomRules?.pvp,
+      this.combo - 1,
+      backToBack,
+    );
+    game.addGodEssence(godEssenceValue(
+      lines,
+      spin,
+      game.session?.roomRules?.pvp,
+      this.combo - 1,
+      backToBack,
+    ));
+    if (attack) { console.info("[PhysTrix] Generated attack", attack); game.onAttack?.({ attackType: "attachments", value: attack, source: game }); }
     game.updateSpeed();
     if (this.combo >= (Number(game.session?.roomRules?.win?.comboLength) || Infinity))
       game.goalProgress.combos += 1;

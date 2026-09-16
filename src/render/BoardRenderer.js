@@ -49,6 +49,7 @@ export class BoardRenderer {
     trashMaterial = material,
     cols = COLS,
     rows = ROWS,
+    specialMaterials = {},
   ) {
     this.cols = cols;
     this.rows = rows;
@@ -89,6 +90,7 @@ export class BoardRenderer {
     // Reuse a shared quad renderer to build connected, stylized mino tiles.
     this.quads = new MinoQuadRenderer(material);
     this.trashQuads = new MinoQuadRenderer(trashMaterial);
+    this.specialQuads = new Map(Object.entries(specialMaterials).map(([name, settings]) => [name, new MinoQuadRenderer(settings)]));
   }
 
   setPalette(colors = []) {
@@ -260,6 +262,7 @@ export class BoardRenderer {
         x,
         y,
         tile.colorIndex,
+        tile.material,
         tile.trash,
         tile.pieceId,
         tile.marked,
@@ -271,7 +274,7 @@ export class BoardRenderer {
     const boardSignature = JSON.stringify(signatureParts);
     const activeSignature = JSON.stringify({
       piece: piece
-        ? [piece.type, piece.x, piece.y, piece.rotation, piece.minos.map((mino) => mino.colorIndex)]
+        ? [piece.type, piece.x, piece.y, piece.rotation, piece.minos.map((mino) => [mino.colorIndex, mino.material])]
         : null,
       ghost: ghost.map((cell) => [cell.x, cell.y, cell.colorIndex]),
       activeAsGhost,
@@ -298,11 +301,11 @@ export class BoardRenderer {
     }
     // Paint each connected group of tiles as a single silhouette so adjacent minos
     // appear to share edges instead of being drawn as isolated boxes.
-    const drawConnected = (target, cells, color, alpha, trash = false) => {
+    const drawConnected = (target, cells, color, alpha, trash = false, material = "default") => {
       const set = new Set(cells.map((cell) => `${cell.x},${cell.y}`));
       const layer = new PIXI.Container();
       layer.label = "connectedMinoGroup";
-      (trash ? this.trashQuads : this.quads).draw(
+      (trash ? this.trashQuads : this.specialQuads.get(material) || this.quads).draw(
         layer,
         cells,
         color,
@@ -356,7 +359,8 @@ export class BoardRenderer {
       // multiple cells share the same piece metadata.
       const groups = new Map();
       board.forEachCell((tile, x, y) => {
-        const group = groups.get(tile.pieceId) || {
+        const groupKey = `${tile.pieceId}:${tile.material || "default"}`;
+        const group = groups.get(groupKey) || {
           color: this.colorFor(tile, tile.baseColor),
           cells: [],
         };
@@ -370,8 +374,9 @@ export class BoardRenderer {
           broken: tile.broken,
           marked: tile.marked,
           trash: tile.trash,
+          material: tile.material || "default",
         });
-        groups.set(tile.pieceId, group);
+        groups.set(groupKey, group);
       });
       // Draw settled board tiles first so the active piece can be layered above them.
       groups.forEach((group) =>
@@ -381,6 +386,7 @@ export class BoardRenderer {
           group.color,
           1,
           group.cells[0]?.trash,
+          group.cells[0]?.material,
         ),
       );
       // Marked classic rows use the same light, outline-only clear treatment as
@@ -441,6 +447,31 @@ export class BoardRenderer {
     }
     // Overlay ghost and active piece outlines/tiles after the board is already drawn.
     drawGhostOutline(ghost || [], piece.averageColor());
-    drawConnected(this.activeLayer, piece.cells(), piece.color, 1);
+    const activeCells = piece.cells();
+    const activeOccupied = new Set(activeCells.map((cell) => `${cell.x},${cell.y}`));
+    const linkedActiveCells = activeCells.map((cell) => ({
+      ...cell,
+      // Material groups render independently, but topology belongs to the
+      // whole PM. Preserve links across ordinary/attachment/gem boundaries.
+      visualLinks: {
+        top: activeOccupied.has(`${cell.x},${cell.y - 1}`),
+        right: activeOccupied.has(`${cell.x + 1},${cell.y}`),
+        bottom: activeOccupied.has(`${cell.x},${cell.y + 1}`),
+        left: activeOccupied.has(`${cell.x - 1},${cell.y}`),
+        topLeft: activeOccupied.has(`${cell.x - 1},${cell.y - 1}`),
+        topRight: activeOccupied.has(`${cell.x + 1},${cell.y - 1}`),
+        bottomRight: activeOccupied.has(`${cell.x + 1},${cell.y + 1}`),
+        bottomLeft: activeOccupied.has(`${cell.x - 1},${cell.y + 1}`),
+      },
+    }));
+    const activeGroups = new Map();
+    linkedActiveCells.forEach((cell) => {
+      const material = cell.material || "default";
+      const group = activeGroups.get(material) || [];
+      group.push(cell);
+      activeGroups.set(material, group);
+    });
+    activeGroups.forEach((cells, material) =>
+      drawConnected(this.activeLayer, cells, piece.color, 1, false, material));
   }
 }

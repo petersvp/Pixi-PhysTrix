@@ -23,6 +23,7 @@ import {
   loadSkin,
 } from "../render/ShaderSettings.js";
 import { TRASH_SKIN_FILE } from "../config/trashConstants.js";
+const SPECIAL_SKINS = { attachment: "skin-mino-attachment.json", gem: "skin-god-gem.json", metal: "skin-metal.json" };
 import { createPlayfieldLayout, SinglePlayerHud } from "../ui/PlayfieldLayout.js";
 import {
   PLAYFIELD_HARD_DROP_PUNCH,
@@ -107,7 +108,11 @@ export class Playfield {
     // independently mutable uniforms, curves, and skin resources.
     this.material = createShaderSettings();
     this.trashMaterial = createShaderSettings();
+    this.attachmentMaterial = createShaderSettings();
+    this.gemMaterial = createShaderSettings();
     this.loadTrashSkin();
+    this.loadAttachmentSkin();
+    this.loadGemSkin();
     this.renderer = new BoardRenderer(
       this.gridLayer,
       this.minoLayer,
@@ -117,6 +122,7 @@ export class Playfield {
       this.trashMaterial,
       cols,
       rows,
+      { attachment: this.attachmentMaterial, gem: this.gemMaterial },
     );
     this.effects = new EffectsRenderer(this.effectsLayer);
     this.hud = new SinglePlayerHud({
@@ -125,6 +131,7 @@ export class Playfield {
       overlayRoot: this.announcements,
       overlayLayout: this.layout,
       material: this.material,
+      previewMaterials: { attachment: this.attachmentMaterial, gem: this.gemMaterial },
     });
     this.punch = { scale: 0, y: 0, rotation: 0, life: 0 };
   }
@@ -150,6 +157,7 @@ export class Playfield {
       this.physicsLayer,
       this.material,
       this.trashMaterial,
+      { attachment: this.attachmentMaterial, gem: this.gemMaterial },
     );
     this.physicsRenderer.setPalette(this.renderer.palette);
     return this.physics;
@@ -187,6 +195,18 @@ export class Playfield {
     } catch {
       // Default material remains valid if an optional Trash skin is missing.
     }
+  }
+  async loadAttachmentSkin() {
+    try {
+      const response = await fetch(`${this.skinBaseUrl}/skin-mino-attachment.json`);
+      if (response.ok) loadSkin(await response.json(), this.attachmentMaterial);
+    } catch { /* The regular mino skin remains the safe fallback. */ }
+  }
+  async loadGemSkin() {
+    try {
+      const response = await fetch(`${this.skinBaseUrl}/skin-god-gem.json`);
+      if (response.ok) loadSkin(await response.json(), this.gemMaterial);
+    } catch { /* The regular mino skin remains the safe fallback. */ }
   }
 
   matchPunch() {
@@ -259,6 +279,8 @@ export class Playfield {
     this.hud.destroy();
     destroyShaderSettings(this.material);
     destroyShaderSettings(this.trashMaterial);
+    destroyShaderSettings(this.attachmentMaterial);
+    destroyShaderSettings(this.gemMaterial);
     this.root.removeFromParent();
     this.announcements.removeFromParent();
     this.root.destroy({ children: true });

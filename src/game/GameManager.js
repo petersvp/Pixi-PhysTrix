@@ -105,6 +105,7 @@ export class GameManager {
     this.classicCombo = 0;
     this.goalProgress = { combos: 0, chains: 0, megaspins: 0, perfectClears: 0 };
     this.lives = this.initialLives();
+    this.godEssence = 0;
     this.id = 1;
     // Sessions always run inside AppShell's persistent v8 Application.
     // Creating a second renderer here would violate scene routing and can
@@ -243,6 +244,9 @@ export class GameManager {
     return this.board.isValid(piece.cells());
   }
   spawn(type = this.queue.next()) {
+    // Queue generation may spend a proportional God Essence allotment on the
+    // newly entering PM. Keep the manager's hidden balance aligned with it.
+    this.godEssence = this.queue.pendingGems;
     this.active = new Polyomino(type);
     this.active.x = (this.cols - Math.max(...this.active.matrix.map((row) => row.length))) >> 1;
     this.statistics.recordSpawn(this.active.type);
@@ -263,6 +267,21 @@ export class GameManager {
       this.gameOver({ preserveActive: true });
     else if (!this.gameplay.isControlFrozen(this))
       this.applyInitialRotationSystem();
+  }
+  addGodEssence(amount = 0) {
+    if (this.session?.roomRules?.pvp?.godEssence === false) return;
+    const essence = Math.max(0, Math.floor(Number(amount) || 0));
+    if (!essence) return;
+    this.queue.addGems(essence);
+    // This is the hidden unspent Essence balance. PieceQueue spends it only
+    // as new queue entries are generated using its queue-size distribution.
+    this.godEssence = this.queue.pendingGems;
+  }
+  applyPVPAttack(type, value = 0) {
+    const count = Math.max(0, Math.floor(Number(value) || 0));
+    if (type === "attachments" && this.session?.roomRules?.pvp?.pmOrderAttack !== false) this.queue.addAttachments(count);
+    if (type === "gems" && this.session?.roomRules?.pvp?.godEssence !== false) this.queue.addGems(count);
+    if (type === "mino-drops") this.pendingMinoDrops = (this.pendingMinoDrops || 0) + count;
   }
   applyInitialRotationSystem() {
     if (!this.irsPending || !this.active) return false;
