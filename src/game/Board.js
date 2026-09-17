@@ -11,6 +11,7 @@ import {
   COLS,
   ROWS,
 } from "../config/gameplayConstants.js";
+import { planMinoDrops } from "./MinoDropPlanner.js";
 
 export class Board {
   constructor(cols = COLS, rows = ROWS) {
@@ -174,6 +175,67 @@ export class Board {
       if (tile) tile.marked = true;
     });
     return cells;
+  }
+  spawnMetalDrops(count = 0, random = Math.random, {
+    colorMode = false,
+    colorCount = 0,
+    settleImmediately = false,
+    animateFall = false,
+  } = {}) {
+    const drops = planMinoDrops(count, this.cols, random);
+    const paletteSize = Math.max(0, Math.floor(Number(colorCount) || 0));
+    for (let index = 0; index < drops.length; index += 1) {
+      const drop = drops[index];
+      const x = drop.x;
+      // Grid/Classic must not invoke sticky/clustered gravity for a drop.
+      // Resolve this independent mono-mino directly to the lowest open cell,
+      // without replacing an occupied tile.
+      let y = -1;
+      let sourceY = -1;
+      if (settleImmediately) {
+        // Find a free spawn row above any pending drop, then walk downward
+        // until the first occupied cell. Choosing the *lowest* empty row was
+        // wrong for uneven stacks: it made the animation visibly pass through
+        // a mino and land in a hole below it.
+        while (this.get(x, sourceY)) sourceY -= 1;
+        y = sourceY;
+        while (y + 1 < this.rows && !this.get(x, y + 1)) y += 1;
+      }
+      const tile = {
+        colorIndex: colorMode && paletteSize ? Math.floor(random() * paletteSize) : -1,
+        baseColor: 0x88909c,
+        material: drop.material,
+        ...(drop.metalLives ? { metalLives: drop.metalLives } : {}),
+        pieceId: `metal-drop-${Date.now()}-${index}`,
+        visualLinks: { top: false, right: false, bottom: false, left: false },
+        broken: { top: drop.broken, right: drop.broken, bottom: drop.broken, left: drop.broken },
+      };
+      // `renderY` is the same renderer animation channel used by settled
+      // clusters, but this drop never enters the sticky-gravity solver.
+      if (animateFall && y !== sourceY) tile.renderY = sourceY;
+      this.set(x, y, tile);
+    }
+    return drops.length;
+  }
+  protectMetalCells(cells) {
+    const protectedCells = new Set();
+    cells.forEach(({ x, y }) => {
+      const tile = this.get(x, y);
+      if (tile?.material !== "metal") return;
+      protectedCells.add(`${x},${y}`);
+      const lives = Math.max(1, Math.floor(Number(tile.metalLives) || 3));
+      if (lives > 2) {
+        tile.metalLives = 2;
+        tile.broken = { top: true, right: true, bottom: true, left: true };
+      } else {
+        delete tile.metalLives;
+        // The final vulnerable state uses the attachment skin until a later
+        // clear removes this mino altogether.
+        tile.material = "attachment";
+        tile.broken = { top: false, right: false, bottom: false, left: false };
+      }
+    });
+    return cells.filter(({ x, y }) => !protectedCells.has(`${x},${y}`));
   }
   // A cleared mino exposes the face of every surviving mino from the same
   // locked polyomino.  Keep this separate from gravity: once the board has

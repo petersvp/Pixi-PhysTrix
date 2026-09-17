@@ -18,6 +18,7 @@ import {
   PHYSICS_RELEASE_MASS_RESET_DURATION_MS,
   VANISH_DURATION_MS,
 } from "../config/gameplayConstants.js";
+import { planMinoDrops } from "../game/MinoDropPlanner.js";
 import { FrameRuleScanner } from "./FrameRuleScanner.js";
 import { VanishSystem } from "./VanishSystem.js";
 import {
@@ -69,6 +70,7 @@ export class PhysicsWorld {
     this.world = new api.Dynamics.b2World(new b2Vec2(0, Number(config.gravity) || 24), true);
     this.bodies = [];
     this.nextLockedPolyominoId = 1;
+    this.nextMinoDropBatch = 1;
     this.scanner = new FrameRuleScanner(
       this.world,
       api,
@@ -87,8 +89,19 @@ export class PhysicsWorld {
     listener.BeginContact = (contact) => {
       const bodyA = contact.GetFixtureA()?.GetBody?.();
       const bodyB = contact.GetFixtureB()?.GetBody?.();
-      [bodyA, bodyB].forEach((body) => {
+      const fixtureA = contact.GetFixtureA?.();
+      const fixtureB = contact.GetFixtureB?.();
+      [[bodyA, bodyB, fixtureB], [bodyB, bodyA, fixtureA]].forEach(([body, other, otherFixture]) => {
         const data = body?.GetUserData?.();
+        const otherData = other?.GetUserData?.();
+        // Spawn release is deliberately stricter than ordinary collision:
+        // only a locked PM or the bottom boundary releases the next PM.
+        // Fresh drops touching each other, a wall, or a prior drop do not.
+        if (data?.metalDrop && !otherData?.metalDrop) {
+          const bottom = otherFixture?.GetUserData?.()?.boundary === "bottom";
+          const lockedPolyomino = this.bodies.includes(other) && !otherData?.metalDrop;
+          if (bottom || lockedPolyomino) data.minoDropTouched = true;
+        }
         if (!data?.temporaryMassActive) return;
         data.contacting = true;
         data.temporaryMassTouched = true;
@@ -209,10 +222,11 @@ export class PhysicsWorld {
       [this.cols / 2, this.rows + 0.5, this.cols / 2 + 0.5, 0.5],
       [-0.5, this.rows / 2, 0.5, this.rows / 2],
       [this.cols + 0.5, this.rows / 2, 0.5, this.rows / 2],
-    ].forEach(([x, y, hx, hy]) => {
+    ].forEach(([x, y, hx, hy], index) => {
       const s = new Shapes.b2PolygonShape();
       s.SetAsOrientedBox(hx, hy, new Math.b2Vec2(x, y), 0);
-      body.CreateFixture2(s, 0);
+      const fixture = body.CreateFixture2(s, 0);
+      if (index === 0) fixture.SetUserData({ boundary: "bottom" });
     });
   }
   pointOccupied(x, y) {
@@ -449,6 +463,72 @@ export class PhysicsWorld {
       body.SetUserData(data);
       this.bodies.push(body);
       this.onLockedPolyominoCreated?.({ body, data });
+    });
+  }
+  spawnMetalDrops(count = 0, random = Math.random) {
+    const drops = planMinoDrops(count, this.cols, random);
+    if (!drops.length) return [];
+    const {
+      Dynamics,
+      Collision: { Shapes },
+      Common: { Math: Box2DMath },
+    } = this.api;
+    const batch = this.nextMinoDropBatch++;
+    const chain = this.config?.chain || {};
+    const colorMode = ["color-lines", "color-clusters"].includes(chain.mode);
+    const colorCount = Math.max(0, Math.floor(Number(chain.colorCount) || 0));
+    const metalMaterial = { ...this.material, density: this.material.density * 5 };
+    const bodies = [];
+    for (let index = 0; index < drops.length; index += 1) {
+      const drop = drops[index];
+      const x = drop.x;
+      const y = -1;
+      const bodyMaterial = drop.material === "metal" ? metalMaterial : this.material;
+      const def = new Dynamics.b2BodyDef();
+      def.type = Dynamics.b2Body.b2_dynamicBody;
+      def.position.Set(x + 0.5, y + 0.5);
+      const body = this.world.CreateBody(def);
+      const cell = {
+        x,
+        y,
+        colorIndex: colorMode && colorCount ? Math.floor(random() * colorCount) : -1,
+        baseColor: 0x88909c,
+        material: drop.material,
+        ...(drop.metalLives ? { metalLives: drop.metalLives } : {}),
+        marked: false,
+        visualLinks: { top: false, right: false, bottom: false, left: false },
+        broken: { top: drop.broken, right: drop.broken, bottom: drop.broken, left: drop.broken },
+      };
+      const shape = new Shapes.b2PolygonShape();
+      shape.SetAsOrientedBox(0.5, 0.5, new Box2DMath.b2Vec2(0, 0), 0);
+      const fixture = new Dynamics.b2FixtureDef();
+      fixture.shape = shape;
+      fixture.density = bodyMaterial.density;
+      fixture.friction = bodyMaterial.friction;
+      fixture.restitution = bodyMaterial.restitution;
+      body.CreateFixture(fixture).SetUserData(cell);
+      const data = {
+        polyominoId: this.nextLockedPolyominoId++,
+        color: cell.baseColor,
+        material: bodyMaterial,
+        metalDrop: true,
+        minoDropBatch: batch,
+        minoDropTouched: false,
+        cells: [cell],
+        origin: { x: x + 0.5, y: y + 0.5 },
+        visualPose: { x: x + 0.5, y: y + 0.5, angle: 0 },
+      };
+      body.SetUserData(data);
+      this.bodies.push(body);
+      bodies.push(body);
+      this.onLockedPolyominoCreated?.({ body, data });
+    }
+    return batch;
+  }
+  hasTouchedMetalDrop(batch) {
+    return this.bodies.some((body) => {
+      const data = body.GetUserData?.();
+      return data?.metalDrop && data.minoDropBatch === batch && data.minoDropTouched;
     });
   }
   hasTrash() {
@@ -763,7 +843,28 @@ export class PhysicsWorld {
     const vanishedLines = this.vanish.consumeLines();
     const markedByBody = new Map(
       this.bodies
-        .map((body) => [body, new Set(body.GetUserData().cells.filter((tile) => tile.marked))])
+        .map((body) => [body, new Set(body.GetUserData().cells.filter((tile) => {
+          if (!tile.marked || tile.material !== "metal") return tile.marked;
+          const lives = Math.max(1, Math.floor(Number(tile.metalLives) || 3));
+          tile.marked = false;
+          if (lives > 2) {
+            tile.metalLives = 2;
+            tile.broken = { top: true, right: true, bottom: true, left: true };
+          } else {
+            delete tile.metalLives;
+            tile.material = "attachment";
+            tile.broken = { top: false, right: false, bottom: false, left: false };
+            const data = body.GetUserData();
+            data.material = this.material;
+            for (let fixture = body.GetFixtureList(); fixture; fixture = fixture.GetNext()) {
+              if (fixture.GetUserData?.() !== tile) continue;
+              if (typeof fixture.SetDensity === "function") fixture.SetDensity(this.material.density);
+              else fixture.m_density = this.material.density;
+            }
+            body.ResetMassData();
+          }
+          return false;
+        }))])
         .filter(([, marked]) => marked.size),
     );
     const vanished = this.fractureBodies(markedByBody);

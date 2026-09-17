@@ -220,6 +220,7 @@ export class GameManager {
     this.level = this.startLevel + 1;
     this.hold = null;
     this.canHold = this.holdEnabled;
+    this.pendingMinoDrops = 0;
     this.horizontalDirection = 0;
     this.horizontalRepeat = 0;
     this.horizontalInitial = true;
@@ -281,7 +282,21 @@ export class GameManager {
     const count = Math.max(0, Math.floor(Number(value) || 0));
     if (type === "attachments" && this.session?.roomRules?.pvp?.pmOrderAttack !== false) this.queue.addAttachments(count);
     if (type === "gems" && this.session?.roomRules?.pvp?.godEssence !== false) this.queue.addGems(count);
-    if (type === "mino-drops") this.pendingMinoDrops = (this.pendingMinoDrops || 0) + count;
+    if (type === "mino-drops" && this.session?.roomRules?.pvp?.minoDropsAttack !== false)
+      this.pendingMinoDrops = (this.pendingMinoDrops || 0) + count;
+  }
+  takePendingMinoDrops(limit = Math.floor((this.cols * 3) / 2)) {
+    // One attack point plans two lane rolls. A lane accepts at most three
+    // rolls, so consume as much attack value as this turn can represent and
+    // retain only the true excess for the next lock.
+    const maximumAttackThisTurn = Math.floor((this.cols * 3) / 2);
+    const count = Math.min(
+      maximumAttackThisTurn,
+      Math.max(0, Math.floor(Number(limit) || 0)),
+      Math.max(0, Math.floor(Number(this.pendingMinoDrops) || 0)),
+    );
+    this.pendingMinoDrops = Math.max(0, (this.pendingMinoDrops || 0) - count);
+    return count;
   }
   applyInitialRotationSystem() {
     if (!this.irsPending || !this.active) return false;

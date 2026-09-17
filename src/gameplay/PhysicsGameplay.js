@@ -10,7 +10,7 @@
 
 import { GameplayContract } from "./GameplayContract.js";
 import { GameManager } from "../game/GameManager.js";
-import { godEssenceValue, isDifficultClear, pmOrderAttackValue } from "../game/AttackValue.js";
+import { godEssenceValue, isDifficultClear, minoDropAttackValue, pmOrderAttackValue } from "../game/AttackValue.js";
 import {
   guidelineAllClearScore,
   guidelineComboScore,
@@ -83,6 +83,9 @@ export class PhysicsGameplay extends GameplayContract {
     this.awaitingPostLockScan = false;
     this.releaseWaitElapsed = 0;
     this.releasePending = false;
+    this.minoDropSpawnPending = false;
+    this.minoDropSpawnBatch = 0;
+    this.minoDropsAfterScan = false;
     this.trashUpRemaining = 0;
   }
 
@@ -96,6 +99,18 @@ export class PhysicsGameplay extends GameplayContract {
 
   onGameOver() {
     this.physics.destroyControlled();
+  }
+
+  beginPendingMinoDrops(game, spawn) {
+    if (!this.minoDropsAfterScan) return false;
+    this.minoDropsAfterScan = false;
+    const drops = game.takePendingMinoDrops();
+    if (!drops) return false;
+    this.minoDropSpawnBatch = this.physics.spawnMetalDrops(drops, game.queueRandom);
+    // A fresh controlled PM cannot safely coexist with drops entering its
+    // spawn rows. Wait for the first falling metal mino to make contact.
+    this.minoDropSpawnPending ||= spawn;
+    return true;
   }
 
   lock(
@@ -125,6 +140,7 @@ export class PhysicsGameplay extends GameplayContract {
     const cells = piece.cells().filter((cell) => cell.y >= 0);
     this.physics.destroyControlled();
     const lockedBodies = this.physics.lock(piece) || [];
+    this.minoDropsAfterScan = true;
     if (hardDrop)
       lockedBodies.forEach((body) => this.physics.beginHardDropMass(body));
     if (emitPlacementParticles)
@@ -142,8 +158,14 @@ export class PhysicsGameplay extends GameplayContract {
         this.backToBack = false;
       }
       this.awaitingPostLockScan = false;
+      this.beginPendingMinoDrops(game, spawn);
     }
-    if (spawn) game.spawn();
+    if (this.minoDropSpawnPending) {
+      game.active = null;
+      game.grounded = false;
+      game.lockTimer = 0;
+    }
+    if (spawn && !this.minoDropSpawnPending) game.spawn();
     return lockedBodies;
   }
 
@@ -168,6 +190,7 @@ export class PhysicsGameplay extends GameplayContract {
   isControlFrozen() {
     return Boolean(
       this.releasePending ||
+        this.minoDropSpawnPending ||
         this.trashUpRemaining > 0 ||
         this.physics?.hasPendingVanish(),
     );
@@ -205,6 +228,13 @@ export class PhysicsGameplay extends GameplayContract {
     if (!this.isControlFrozen() && game.active)
       this.physics.syncControlled(game.active, ms);
     const result = this.physics.step(ms);
+    if (this.minoDropsAfterScan && result.scanned)
+      this.beginPendingMinoDrops(game, true);
+    if (this.minoDropSpawnPending && this.physics.hasTouchedMetalDrop(this.minoDropSpawnBatch)) {
+      this.minoDropSpawnPending = false;
+      this.minoDropSpawnBatch = 0;
+      game.spawn();
+    }
     // Combo expiry is evaluated only by the first actual frame-rule scan after
     // a lock. Empty ticker frames and the vanish delay cannot reset it.
     if (this.awaitingPostLockScan && result.scanned) {
@@ -327,6 +357,14 @@ export class PhysicsGameplay extends GameplayContract {
       backToBack,
     ));
     if (attack) { console.info("[PhysTrix] Generated attack", attack); game.onAttack?.({ attackType: "attachments", value: attack, source: game }); }
+    const minoDrops = minoDropAttackValue(
+      lines,
+      spin,
+      game.session?.roomRules?.pvp,
+      this.combo - 1,
+      backToBack,
+    );
+    if (minoDrops) game.onAttack?.({ attackType: "mino-drops", value: minoDrops, source: game });
     game.updateSpeed();
     if (this.combo >= (Number(game.session?.roomRules?.win?.comboLength) || Infinity))
       game.goalProgress.combos += 1;

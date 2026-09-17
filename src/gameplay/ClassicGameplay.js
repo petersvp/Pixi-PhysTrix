@@ -17,7 +17,7 @@ import {
   guidelineSpinScore,
 } from "../game/Scoring.js";
 import { chainName, findColorChainGroups } from "../game/ChainSystem.js";
-import { godEssenceValue, isDifficultClear, pmOrderAttackValue } from "../game/AttackValue.js";
+import { godEssenceValue, isDifficultClear, minoDropAttackValue, pmOrderAttackValue } from "../game/AttackValue.js";
 import {
   CLASSIC_VANISH_DURATION_MS,
   CELL,
@@ -56,6 +56,8 @@ export class ClassicGameplay extends GameplayContract {
     this.pendingSpin = "";
     this.pendingSpinOrder = 4;
     this.backToBack = false;
+    this.minoDropsAfterInitialScan = false;
+    this.minoDropsAfterResolve = false;
   }
   spawnTrash(game, trash) {
     if (trash.enabled) trash.populateBoard(game.board);
@@ -67,6 +69,22 @@ export class ClassicGameplay extends GameplayContract {
     return game.session?.roomRules?.grid?.gravityType === "classic"
       ? "classic"
       : "clustered";
+  }
+
+  beginPendingMinoDrops(game) {
+    const drops = game.takePendingMinoDrops();
+    if (!drops) return false;
+    const chain = game.session?.roomRules?.chain || {};
+    const clustered = this.gravityType(game) === "clustered";
+    game.board.spawnMetalDrops(drops, game.queueRandom, {
+      colorMode: ["color-lines", "color-clusters"].includes(chain.mode),
+      colorCount: chain.colorCount,
+      settleImmediately: !clustered,
+      animateFall: !clustered,
+    });
+    if (clustered) game.board.settle(true);
+    this.resolve = { phase: "fall", initialScan: false };
+    return true;
   }
 
   lock(game) {
@@ -83,11 +101,15 @@ export class ClassicGameplay extends GameplayContract {
     game.active = null;
     this.pendingSpin = spin;
     this.pendingSpinOrder = piece.order;
+    // A turn owns one possible drop batch. It becomes eligible only after
+    // this lock has received its first chain scan.
+    this.minoDropsAfterInitialScan = true;
+    this.minoDropsAfterResolve = false;
     // A disconnected authored shape is still scanned at its lock position.
     // Clustered gravity starts only after that instant scan found no clear.
     if (partCount > 1 && this.gravityType(game) === "clustered") {
       const clearedAtLock = this.scan(game, true, { spawn: false });
-      if (clearedAtLock) return;
+      if (clearedAtLock || this.resolve) return;
       game.board.settle(true);
       this.resolve = { phase: "fall", initialScan: false };
       return;
@@ -108,8 +130,27 @@ export class ClassicGameplay extends GameplayContract {
     // Out simply because the current scan has no qualifying colour chain.
     const rows = chainRules.mode === "lines-out" ? game.board.findFullLines() : [];
     if (rows.length || colorCells.length) {
-      if (colorCells.length) game.board.markCells(colorCells);
-      else game.board.markLines(rows);
+      if (initial && this.minoDropsAfterInitialScan) {
+        this.minoDropsAfterInitialScan = false;
+        this.minoDropsAfterResolve = true;
+      }
+      const isColorClear = colorCells.length > 0;
+      const matchedCells = colorCells.length
+        ? colorCells
+        : rows.flatMap((y) => Array.from({ length: game.board.cols }, (_value, x) => ({ x, y })));
+      // Metal has three states: intact metal, cracked metal, then an ordinary
+      // mino. The first two clears mutate it but do not remove it.
+      const clearCells = game.board.protectMetalCells(matchedCells);
+      if (!clearCells.length) {
+        this.resolve = null;
+        if (initial && this.minoDropsAfterResolve) {
+          this.minoDropsAfterResolve = false;
+          if (this.beginPendingMinoDrops(game)) return true;
+        }
+        if (spawn) game.spawn();
+        return false;
+      }
+      if (clearCells.length) game.board.markCells(clearCells);
       // Keep the original scan rows while the marked cells are visible. Once
       // they vanish, board compaction has already changed their coordinates.
       this.resolve = {
@@ -117,7 +158,9 @@ export class ClassicGameplay extends GameplayContract {
         remaining: CLASSIC_VANISH_DURATION_MS,
         initial,
         rows,
-        colorCells,
+        colorCells: clearCells,
+        isColorClear,
+        cellClear: true,
         colorGroups,
       };
       return true;
@@ -126,6 +169,10 @@ export class ClassicGameplay extends GameplayContract {
       game.classicCombo = 0;
       this.backToBack = false;
       this.awardSpinWithoutClear(game);
+      if (this.minoDropsAfterInitialScan) {
+        this.minoDropsAfterInitialScan = false;
+        if (this.beginPendingMinoDrops(game)) return true;
+      }
     }
     this.resolve = null;
     if (spawn) game.spawn();
@@ -188,6 +235,14 @@ export class ClassicGameplay extends GameplayContract {
       backToBack,
     ));
     if (attack) game.onAttack?.({ attackType: "attachments", value: attack, source: game });
+    const minoDrops = minoDropAttackValue(
+      lines,
+      spin,
+      game.session?.roomRules?.pvp,
+      game.classicCombo - 1,
+      backToBack,
+    );
+    if (minoDrops) game.onAttack?.({ attackType: "mino-drops", value: minoDrops, source: game });
     game.updateSpeed();
     if (game.classicCombo >= (Number(game.session?.roomRules?.win?.comboLength) || Infinity))
       game.goalProgress.combos += 1;
@@ -243,12 +298,12 @@ export class ClassicGameplay extends GameplayContract {
       this.resolve.remaining -= ms;
       if (this.resolve.remaining > 0) return;
       const gravity = this.gravityType(game);
-      const cleared = this.resolve.colorCells.length
+      const cleared = this.resolve.cellClear
         ? game.board.resolveMarkedCells(gravity)
         : game.board.resolveMarkedLines(gravity);
-      const lines = this.resolve.colorCells.length
+      const lines = this.resolve.isColorClear
         ? Math.max(1, this.resolve.colorGroups.length)
-        : cleared;
+        : this.resolve.rows.length || cleared;
       const extraMinos = this.resolve.colorGroups.reduce(
         (sum, group) => sum + (Number(group.extraMinoCount) || 0),
         0,
@@ -273,6 +328,9 @@ export class ClassicGameplay extends GameplayContract {
       if (trashUp) {
         this.resolve.phase = "trashUp";
         this.resolve.remaining = TRASH_UP_TRANSITION_MS;
+      } else if (this.minoDropsAfterResolve) {
+        this.minoDropsAfterResolve = false;
+        if (!this.beginPendingMinoDrops(game)) this.resolve.phase = "fall";
       } else this.resolve.phase = "fall";
       return;
     }

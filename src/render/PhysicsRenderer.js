@@ -15,6 +15,21 @@ import {
 import { MinoQuadRenderer } from "./MinoQuadRenderer.js";
 import { polyominoCentroid } from "../game/Polyomino.js";
 
+const halfDesaturate = (color) => {
+  const red = (color >> 16) & 0xff;
+  const green = (color >> 8) & 0xff;
+  const blue = color & 0xff;
+  const grey = Math.round((red + green + blue) / 3);
+  return (Math.round((red + grey) / 2) << 16) |
+    (Math.round((green + grey) / 2) << 8) |
+    Math.round((blue + grey) / 2);
+};
+
+const darken = (color, amount) =>
+  (Math.round(((color >> 16) & 0xff) * amount) << 16) |
+  (Math.round(((color >> 8) & 0xff) * amount) << 8) |
+  Math.round((color & 0xff) * amount);
+
 const lightenColor = (color, amount) => {
   const lift = (channel) => Math.round(channel + (255 - channel) * amount);
   return (
@@ -53,9 +68,12 @@ export class PhysicsRenderer {
   }
 
   colorFor(cell, fallback) {
-    return Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
+    const color = Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
       ? this.palette[cell.colorIndex] ?? fallback
       : cell.baseColor ?? fallback;
+    if (cell.material !== "metal") return color;
+    const metalColor = halfDesaturate(color);
+    return cell.metalLives === 2 ? darken(metalColor, 0.55) : metalColor;
   }
 
   render(field) {
@@ -172,6 +190,7 @@ export class PhysicsRenderer {
         cell.marked,
         cell.colorIndex,
         cell.material,
+        cell.metalLives,
         cell.broken,
         cell.visualLinks,
       ]),

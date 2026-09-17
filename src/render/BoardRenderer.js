@@ -26,6 +26,21 @@ import {
   PLAYFIELD_OUTER_GLOW_SPREAD,
 } from "../config/uiConstants.js";
 import { MinoQuadRenderer } from "./MinoQuadRenderer.js";
+
+const halfDesaturate = (color) => {
+  const red = (color >> 16) & 0xff;
+  const green = (color >> 8) & 0xff;
+  const blue = color & 0xff;
+  const grey = Math.round((red + green + blue) / 3);
+  return (Math.round((red + grey) / 2) << 16) |
+    (Math.round((green + grey) / 2) << 8) |
+    Math.round((blue + grey) / 2);
+};
+
+const darken = (color, amount) =>
+  (Math.round(((color >> 16) & 0xff) * amount) << 16) |
+  (Math.round(((color >> 8) & 0xff) * amount) << 8) |
+  Math.round((color & 0xff) * amount);
 import { AdvancedLineRenderer } from "./AdvancedLineRenderer.js";
 
 const lightenColor = (color, amount) => {
@@ -102,9 +117,12 @@ export class BoardRenderer {
   }
 
   colorFor(cell, fallback) {
-    return Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
+    const color = Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
       ? this.palette[cell.colorIndex] ?? fallback
       : cell.baseColor ?? fallback;
+    if (cell.material !== "metal") return color;
+    const metalColor = halfDesaturate(color);
+    return cell.metalLives === 2 ? darken(metalColor, 0.55) : metalColor;
   }
 
   // The particle is authored in white. Pixi applies the rail color through
@@ -263,6 +281,7 @@ export class BoardRenderer {
         y,
         tile.colorIndex,
         tile.material,
+        tile.metalLives,
         tile.trash,
         tile.pieceId,
         tile.marked,

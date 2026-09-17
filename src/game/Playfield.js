@@ -110,9 +110,11 @@ export class Playfield {
     this.trashMaterial = createShaderSettings();
     this.attachmentMaterial = createShaderSettings();
     this.gemMaterial = createShaderSettings();
+    this.metalMaterial = createShaderSettings();
     this.loadTrashSkin();
     this.loadAttachmentSkin();
     this.loadGemSkin();
+    this.loadMetalSkin();
     this.renderer = new BoardRenderer(
       this.gridLayer,
       this.minoLayer,
@@ -122,7 +124,7 @@ export class Playfield {
       this.trashMaterial,
       cols,
       rows,
-      { attachment: this.attachmentMaterial, gem: this.gemMaterial },
+      { attachment: this.attachmentMaterial, gem: this.gemMaterial, metal: this.metalMaterial },
     );
     this.effects = new EffectsRenderer(this.effectsLayer);
     this.hud = new SinglePlayerHud({
@@ -131,7 +133,7 @@ export class Playfield {
       overlayRoot: this.announcements,
       overlayLayout: this.layout,
       material: this.material,
-      previewMaterials: { attachment: this.attachmentMaterial, gem: this.gemMaterial },
+      previewMaterials: { attachment: this.attachmentMaterial, gem: this.gemMaterial, metal: this.metalMaterial },
     });
     this.punch = { scale: 0, y: 0, rotation: 0, life: 0 };
   }
@@ -157,7 +159,7 @@ export class Playfield {
       this.physicsLayer,
       this.material,
       this.trashMaterial,
-      { attachment: this.attachmentMaterial, gem: this.gemMaterial },
+      { attachment: this.attachmentMaterial, gem: this.gemMaterial, metal: this.metalMaterial },
     );
     this.physicsRenderer.setPalette(this.renderer.palette);
     return this.physics;
@@ -206,6 +208,12 @@ export class Playfield {
     try {
       const response = await fetch(`${this.skinBaseUrl}/skin-god-gem.json`);
       if (response.ok) loadSkin(await response.json(), this.gemMaterial);
+    } catch { /* The regular mino skin remains the safe fallback. */ }
+  }
+  async loadMetalSkin() {
+    try {
+      const response = await fetch(`${this.skinBaseUrl}/skin-metal.json`);
+      if (response.ok) loadSkin(await response.json(), this.metalMaterial);
     } catch { /* The regular mino skin remains the safe fallback. */ }
   }
 
@@ -281,6 +289,7 @@ export class Playfield {
     destroyShaderSettings(this.trashMaterial);
     destroyShaderSettings(this.attachmentMaterial);
     destroyShaderSettings(this.gemMaterial);
+    destroyShaderSettings(this.metalMaterial);
     this.root.removeFromParent();
     this.announcements.removeFromParent();
     this.root.destroy({ children: true });
