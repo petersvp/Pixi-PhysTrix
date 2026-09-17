@@ -19,6 +19,7 @@ import {
   VANISH_DURATION_MS,
 } from "../config/gameplayConstants.js";
 import { planMinoDrops } from "../game/MinoDropPlanner.js";
+import { damageTrashMino } from "../config/trashConstants.js";
 import { FrameRuleScanner } from "./FrameRuleScanner.js";
 import { VanishSystem } from "./VanishSystem.js";
 import {
@@ -422,43 +423,92 @@ export class PhysicsWorld {
       Collision: { Shapes },
       Common: { Math },
     } = this.api;
-    cells.forEach(({ x, y, colorIndex = -1, baseColor, trash }) => {
+    const normalized = cells.map(({
+      x,
+      y,
+      colorIndex = -1,
+      baseColor,
+      trash,
+      material = "trash",
+      trashHp = 1,
+      broken,
+      visualLinks,
+      normalTrash = false,
+    }) => ({
+      x,
+      y,
+      colorIndex,
+      baseColor,
+      trash: Boolean(trash),
+      normalTrash: Boolean(normalTrash),
+      material,
+      trashHp: globalThis.Math.max(1, globalThis.Math.floor(Number(trashHp) || 1)),
+      marked: false,
+      visualLinks: visualLinks || {
+        top: false, right: false, bottom: false, left: false,
+        topLeft: false, topRight: false, bottomRight: false, bottomLeft: false,
+      },
+      broken: broken || { top: false, right: false, bottom: false, left: false },
+    }));
+    const opposite = { top: "bottom", right: "left", bottom: "top", left: "right" };
+    const directions = [[0, -1, "top"], [1, 0, "right"], [0, 1, "bottom"], [-1, 0, "left"]];
+    const remaining = new Map(normalized.map((cell) => [`${cell.x},${cell.y}`, cell]));
+    const components = [];
+    while (remaining.size) {
+      const [firstKey, first] = remaining.entries().next().value;
+      remaining.delete(firstKey);
+      const component = [first];
+      for (let index = 0; index < component.length; index += 1) {
+        const cell = component[index];
+        // Only authored normal minos use explicit topology. Trash/metal
+        // minos remain individual static bodies as before.
+        if (!cell.normalTrash) continue;
+        directions.forEach(([dx, dy, side]) => {
+          if (!cell.visualLinks?.[side] || cell.broken?.[side]) return;
+          const key = `${cell.x + dx},${cell.y + dy}`;
+          const neighbor = remaining.get(key);
+          if (!neighbor?.normalTrash || neighbor.broken?.[opposite[side]] ||
+              !neighbor.visualLinks?.[opposite[side]]) return;
+          remaining.delete(key);
+          component.push(neighbor);
+        });
+      }
+      components.push(component);
+    }
+    components.forEach((component) => {
+      const origin = polyominoCentroid(component);
+      const authoredPolyomino = component.every((cell) => cell.normalTrash);
       const def = new Dynamics.b2BodyDef();
-      def.type = Dynamics.b2Body.b2_staticBody;
-      def.position.Set(x + 0.5, y + 0.5);
+      // Authored normal minos are designed polyominoes, not terrain. They
+      // must enter the world and settle under simulation; actual trash keeps
+      // its intentionally pinned static behavior.
+      def.type = authoredPolyomino
+        ? Dynamics.b2Body.b2_dynamicBody
+        : Dynamics.b2Body.b2_staticBody;
+      def.position.Set(origin.x, origin.y);
       const body = this.world.CreateBody(def);
-      const cell = {
-        x,
-        y,
-        colorIndex,
-        trash: Boolean(trash),
-        marked: false,
-        visualLinks: {
-          top: false,
-          right: false,
-          bottom: false,
-          left: false,
-          topLeft: false,
-          topRight: false,
-          bottomRight: false,
-          bottomLeft: false,
-        },
-        broken: { top: false, right: false, bottom: false, left: false },
-      };
-      const shape = new Shapes.b2PolygonShape();
-      shape.SetAsOrientedBox(0.5, 0.5, new Math.b2Vec2(0, 0), 0);
-      const fixture = new Dynamics.b2FixtureDef();
-      fixture.shape = shape;
-      fixture.friction = this.material.friction;
-      fixture.restitution = this.material.restitution;
-      body.CreateFixture(fixture).SetUserData(cell);
+      component.forEach((cell) => {
+        const shape = new Shapes.b2PolygonShape();
+        shape.SetAsOrientedBox(
+          0.5,
+          0.5,
+          new Math.b2Vec2(cell.x - origin.x + 0.5, cell.y - origin.y + 0.5),
+          0,
+        );
+        const fixture = new Dynamics.b2FixtureDef();
+        fixture.shape = shape;
+        fixture.density = this.material.density;
+        fixture.friction = this.material.friction;
+        fixture.restitution = this.material.restitution;
+        body.CreateFixture(fixture).SetUserData(cell);
+      });
       const data = {
         polyominoId: this.nextLockedPolyominoId++,
-        color: baseColor,
-        trash: true,
-        cells: [cell],
-        origin: { x: x + 0.5, y: y + 0.5 },
-        visualPose: { x: x + 0.5, y: y + 0.5, angle: 0 },
+        color: component[0]?.baseColor,
+        trash: component.some((cell) => cell.trash),
+        cells: component,
+        origin,
+        visualPose: { x: origin.x, y: origin.y, angle: 0 },
       };
       body.SetUserData(data);
       this.bodies.push(body);
@@ -844,7 +894,12 @@ export class PhysicsWorld {
     const markedByBody = new Map(
       this.bodies
         .map((body) => [body, new Set(body.GetUserData().cells.filter((tile) => {
-          if (!tile.marked || tile.material !== "metal") return tile.marked;
+          if (!tile.marked) return false;
+          if (damageTrashMino(tile)) {
+            tile.marked = false;
+            return false;
+          }
+          if (tile.material !== "metal") return true;
           const lives = Math.max(1, Math.floor(Number(tile.metalLives) || 3));
           tile.marked = false;
           if (lives > 2) {

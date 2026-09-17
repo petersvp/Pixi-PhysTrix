@@ -143,6 +143,11 @@ export class Playfield {
     this.physicsRenderer?.setPalette(colors);
   }
 
+  setTrashAppearance(appearance = {}) {
+    this.renderer.setTrashAppearance(appearance);
+    this.physicsRenderer?.setTrashAppearance(appearance);
+  }
+
   createPhysicsWorld(api, preset, config) {
     this.physics = new PhysicsWorld(api, preset, {
       ...config,
@@ -162,6 +167,7 @@ export class Playfield {
       { attachment: this.attachmentMaterial, gem: this.gemMaterial, metal: this.metalMaterial },
     );
     this.physicsRenderer.setPalette(this.renderer.palette);
+    this.physicsRenderer.setTrashAppearance(this.renderer.trashAppearance);
     return this.physics;
   }
 

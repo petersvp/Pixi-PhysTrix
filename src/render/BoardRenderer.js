@@ -26,21 +26,7 @@ import {
   PLAYFIELD_OUTER_GLOW_SPREAD,
 } from "../config/uiConstants.js";
 import { MinoQuadRenderer } from "./MinoQuadRenderer.js";
-
-const halfDesaturate = (color) => {
-  const red = (color >> 16) & 0xff;
-  const green = (color >> 8) & 0xff;
-  const blue = color & 0xff;
-  const grey = Math.round((red + green + blue) / 3);
-  return (Math.round((red + grey) / 2) << 16) |
-    (Math.round((green + grey) / 2) << 8) |
-    Math.round((blue + grey) / 2);
-};
-
-const darken = (color, amount) =>
-  (Math.round(((color >> 16) & 0xff) * amount) << 16) |
-  (Math.round(((color >> 8) & 0xff) * amount) << 8) |
-  Math.round((color & 0xff) * amount);
+import { metalTint, normalTrashTint } from "./MetalTint.js";
 import { AdvancedLineRenderer } from "./AdvancedLineRenderer.js";
 
 const lightenColor = (color, amount) => {
@@ -83,6 +69,7 @@ export class BoardRenderer {
     this.crispFrame.label = "playfieldCrispFrame";
     this.frameLayer.addChild(this.crispFrame);
     this.palette = [];
+    this.trashAppearance = { desaturation: 0.5, damagedBrightness: 0.55 };
     // The fixed board must not be destroyed merely because an active mino
     // moves. These owned sublayers isolate expensive settled meshes from the
     // short-lived active piece, ghost, and marked-clear overlays.
@@ -116,13 +103,21 @@ export class BoardRenderer {
     this.lastActiveSignature = null;
   }
 
+  setTrashAppearance({ desaturation, damagedBrightness } = {}) {
+    if (Number.isFinite(desaturation)) this.trashAppearance.desaturation = Math.max(0, Math.min(1, desaturation));
+    if (Number.isFinite(damagedBrightness)) this.trashAppearance.damagedBrightness = Math.max(0, Math.min(1, damagedBrightness));
+    this.lastBoardSignature = null;
+    this.lastActiveSignature = null;
+  }
+
   colorFor(cell, fallback) {
     const color = Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
       ? this.palette[cell.colorIndex] ?? fallback
       : cell.baseColor ?? fallback;
+    if (cell.trash && cell.material === "trash" && cell.trashHp === 1)
+      return normalTrashTint(color, this.trashAppearance.desaturation);
     if (cell.material !== "metal") return color;
-    const metalColor = halfDesaturate(color);
-    return cell.metalLives === 2 ? darken(metalColor, 0.55) : metalColor;
+    return metalTint(color, cell.trash ? cell.trashHp : cell.metalLives, this.trashAppearance.desaturation, this.trashAppearance.damagedBrightness);
   }
 
   // The particle is authored in white. Pixi applies the rail color through
@@ -282,6 +277,7 @@ export class BoardRenderer {
         tile.colorIndex,
         tile.material,
         tile.metalLives,
+        tile.trashHp,
         tile.trash,
         tile.pieceId,
         tile.marked,
@@ -324,7 +320,9 @@ export class BoardRenderer {
       const set = new Set(cells.map((cell) => `${cell.x},${cell.y}`));
       const layer = new PIXI.Container();
       layer.label = "connectedMinoGroup";
-      (trash ? this.trashQuads : this.specialQuads.get(material) || this.quads).draw(
+      (material === "trash" || (trash && material === "default")
+        ? this.trashQuads
+        : this.specialQuads.get(material) || this.quads).draw(
         layer,
         cells,
         color,

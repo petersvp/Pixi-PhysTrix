@@ -98,7 +98,7 @@ export class FrameRuleScanner {
         });
       }));
     } else if (this.chain.mode === "color-clusters") {
-      const minimum = Math.max(2, Number(this.chain.clusterSize) || 2);
+      const minimum = Math.max(2, Number(this.chain.clusterSize) || 17);
       const visited = new Set();
       cells.forEach((cell, key) => {
         if (visited.has(key)) return;

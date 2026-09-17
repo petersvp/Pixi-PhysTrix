@@ -140,7 +140,9 @@ export class ClassicGameplay extends GameplayContract {
         : rows.flatMap((y) => Array.from({ length: game.board.cols }, (_value, x) => ({ x, y })));
       // Metal has three states: intact metal, cracked metal, then an ordinary
       // mino. The first two clears mutate it but do not remove it.
-      const clearCells = game.board.protectMetalCells(matchedCells);
+      const clearCells = game.board.protectTrashCells(
+        game.board.protectMetalCells(matchedCells),
+      );
       if (!clearCells.length) {
         this.resolve = null;
         if (initial && this.minoDropsAfterResolve) {

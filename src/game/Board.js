@@ -12,6 +12,7 @@ import {
   ROWS,
 } from "../config/gameplayConstants.js";
 import { planMinoDrops } from "./MinoDropPlanner.js";
+import { damageTrashMino } from "../config/trashConstants.js";
 
 export class Board {
   constructor(cols = COLS, rows = ROWS) {
@@ -221,7 +222,7 @@ export class Board {
     const protectedCells = new Set();
     cells.forEach(({ x, y }) => {
       const tile = this.get(x, y);
-      if (tile?.material !== "metal") return;
+      if (tile?.material !== "metal" || tile.trash) return;
       protectedCells.add(`${x},${y}`);
       const lives = Math.max(1, Math.floor(Number(tile.metalLives) || 3));
       if (lives > 2) {
@@ -234,6 +235,15 @@ export class Board {
         tile.material = "attachment";
         tile.broken = { top: false, right: false, bottom: false, left: false };
       }
+    });
+    return cells.filter(({ x, y }) => !protectedCells.has(`${x},${y}`));
+  }
+  protectTrashCells(cells) {
+    const protectedCells = new Set();
+    cells.forEach(({ x, y }) => {
+      const tile = this.get(x, y);
+      if (!damageTrashMino(tile)) return;
+      protectedCells.add(`${x},${y}`);
     });
     return cells.filter(({ x, y }) => !protectedCells.has(`${x},${y}`));
   }

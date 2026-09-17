@@ -14,21 +14,7 @@ import {
 } from "../config/effectsConstants.js";
 import { MinoQuadRenderer } from "./MinoQuadRenderer.js";
 import { polyominoCentroid } from "../game/Polyomino.js";
-
-const halfDesaturate = (color) => {
-  const red = (color >> 16) & 0xff;
-  const green = (color >> 8) & 0xff;
-  const blue = color & 0xff;
-  const grey = Math.round((red + green + blue) / 3);
-  return (Math.round((red + grey) / 2) << 16) |
-    (Math.round((green + grey) / 2) << 8) |
-    Math.round((blue + grey) / 2);
-};
-
-const darken = (color, amount) =>
-  (Math.round(((color >> 16) & 0xff) * amount) << 16) |
-  (Math.round(((color >> 8) & 0xff) * amount) << 8) |
-  Math.round((color & 0xff) * amount);
+import { metalTint, normalTrashTint } from "./MetalTint.js";
 
 const lightenColor = (color, amount) => {
   const lift = (channel) => Math.round(channel + (255 - channel) * amount);
@@ -57,6 +43,7 @@ export class PhysicsRenderer {
     this.bodyData = new Map();
     this.markedNodes = new Map();
     this.palette = [];
+    this.trashAppearance = { desaturation: 0.5, damagedBrightness: 0.55 };
     this.layer.addChild(this.bodyLayer, this.markedLayer);
   }
 
@@ -67,13 +54,20 @@ export class PhysicsRenderer {
     this.invalidateMaterial();
   }
 
+  setTrashAppearance({ desaturation, damagedBrightness } = {}) {
+    if (Number.isFinite(desaturation)) this.trashAppearance.desaturation = Math.max(0, Math.min(1, desaturation));
+    if (Number.isFinite(damagedBrightness)) this.trashAppearance.damagedBrightness = Math.max(0, Math.min(1, damagedBrightness));
+    this.invalidateMaterial();
+  }
+
   colorFor(cell, fallback) {
     const color = Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
       ? this.palette[cell.colorIndex] ?? fallback
       : cell.baseColor ?? fallback;
+    if (cell.trash && cell.material === "trash" && cell.trashHp === 1)
+      return normalTrashTint(color, this.trashAppearance.desaturation);
     if (cell.material !== "metal") return color;
-    const metalColor = halfDesaturate(color);
-    return cell.metalLives === 2 ? darken(metalColor, 0.55) : metalColor;
+    return metalTint(color, cell.trash ? cell.trashHp : cell.metalLives, this.trashAppearance.desaturation, this.trashAppearance.damagedBrightness);
   }
 
   render(field) {
@@ -97,7 +91,7 @@ export class PhysicsRenderer {
         const cells = data.cells.map((cell) => ({ ...cell, color: this.colorFor(cell, data.color) }));
         const groups = new Map();
         cells.forEach((cell) => {
-          const key = data.trash ? "trash" : cell.material || "default";
+          const key = cell.material || (data.trash ? "trash" : "default");
           const group = groups.get(key) || [];
           group.push(cell);
           groups.set(key, group);
@@ -191,6 +185,8 @@ export class PhysicsRenderer {
         cell.colorIndex,
         cell.material,
         cell.metalLives,
+        cell.trashHp,
+        cell.trash,
         cell.broken,
         cell.visualLinks,
       ]),

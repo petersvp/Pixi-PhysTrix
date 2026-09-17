@@ -179,14 +179,18 @@ export class PieceQueue {
     const palette = (chain?.colors || [])
       .slice(0, Math.max(1, Number(chain?.colorCount) || 1))
       .map(colorNumber);
-    const usesColorChain = Boolean(chain && ["color-lines", "color-clusters"].includes(chain.mode) && palette.length);
+    // Palette assignments remain authored data in every mode, but Lines Out
+    // must never render them. Keep indices for a later mode change while
+    // withholding the render palette from its queue/active-piece cells.
+    const usesColorChain = Boolean(chain && palette.length);
+    const rendersColorChain = ["color-lines", "color-clusters"].includes(chain?.mode);
     const pickIndex = () => Math.floor(this.random() * palette.length);
     const colorIndex = usesColorChain ? pickIndex() : undefined;
     const item = usesColorChain
       ? {
           ...definition,
           colorIndex,
-          palette,
+          palette: rendersColorChain ? palette : null,
           minos: Array.isArray(definition.minos)
             ? definition.minos.map((mino) => ({
                 ...mino,

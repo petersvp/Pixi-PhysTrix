@@ -18,6 +18,9 @@ const emptyLinks = () => ({
   top: false, right: false, bottom: false, left: false,
   topLeft: false, topRight: false, bottomRight: false, bottomLeft: false,
 });
+const TRASH_PATTERN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const NORMAL_MINO_TOKEN = 50;
+const trashPatternValue = (token) => TRASH_PATTERN_ALPHABET.indexOf(token);
 
 const hash = (x, y, seed) => {
   const value = Math.sin(x * 12.9898 + y * 78.233 + seed * 37.719) * 43758.5453;
@@ -105,7 +108,7 @@ export class TrashSystem {
           ? organicNoise(x, y, level) < density
           : this.random() < density)
           {
-            const colorIndex = this.colorMode && this.colors.length
+            const colorIndex = this.colors.length
               ? Math.floor(this.random() * this.colors.length)
               : -1;
             row.push({
@@ -113,6 +116,7 @@ export class TrashSystem {
               y,
               trash: true,
               material: "trash",
+              trashHp: 1,
               colorIndex,
               baseColor: TRASH_MINO_COLOR,
             });
@@ -122,7 +126,7 @@ export class TrashSystem {
       cells.push(...row);
     }
     if (!cells.length && level > 0) {
-      const colorIndex = this.colorMode && this.colors.length
+      const colorIndex = this.colors.length
         ? Math.floor(this.random() * this.colors.length)
         : -1;
       cells.push({
@@ -130,6 +134,7 @@ export class TrashSystem {
         y: this.rows - 1,
         trash: true,
         material: "trash",
+        trashHp: 1,
         colorIndex,
         baseColor: TRASH_MINO_COLOR,
       });
@@ -189,7 +194,8 @@ export class TrashSystem {
       y,
       trash: true,
       material: "trash",
-      colorIndex: this.colorMode && this.colors.length
+      trashHp: 1,
+      colorIndex: this.colors.length
         ? Math.floor(this.random() * this.colors.length)
         : -1,
       baseColor: TRASH_MINO_COLOR,
@@ -221,7 +227,8 @@ export class TrashSystem {
     for (let rowFromBottom = 0; rowFromBottom < spawnRows; rowFromBottom += 1) {
       const pattern = selected;
       const rows = pattern?.rows || [];
-      const row = String(rows[(rows.length - 1 - (rowFromBottom % Math.max(1, rows.length)) + rows.length) % Math.max(1, rows.length)] || "");
+      const sourceRow = (rows.length - 1 - (rowFromBottom % Math.max(1, rows.length)) + rows.length) % Math.max(1, rows.length);
+      const row = String(rows[sourceRow] || "");
       const patternWidth = Math.max(1, row.length);
       // Tile a narrow pattern from its centre; crop a wider one around its
       // centre. This keeps visual symmetry on any board/pattern mismatch.
@@ -230,18 +237,43 @@ export class TrashSystem {
       for (let x = 0; x < this.cols; x += 1) {
         const sourceX = ((x - start) % patternWidth + patternWidth) % patternWidth;
         const token = row[sourceX] || "0";
-        if (token === "0") continue;
-        const index = Math.max(0, Number(token) - 1);
-        const colorIndex = this.colorMode && this.colors.length
-          ? index % this.colors.length
+        const value = trashPatternValue(token);
+        if (!Number.isFinite(value) || value <= 0) continue;
+        const normal = value >= NORMAL_MINO_TOKEN;
+        const encodedColorState = value >= 4 && this.colors.length;
+        const encoded = value - 4;
+        const trashHp = normal
+          ? 1
+          : encodedColorState
+          ? Math.min(3, Math.floor(encoded / this.colors.length) + 1)
+          : value === 3 ? 3 : value === 2 ? 2 : 1;
+        const colorIndex = normal && this.colors.length
+          ? (value - NORMAL_MINO_TOKEN) % this.colors.length
+          : encodedColorState
+          ? encoded % this.colors.length
           : -1;
+        const authoredLinks = normal
+          ? selected?.normalLinks?.[`${sourceX},${sourceRow}`]
+          : null;
+        const { broken: authoredBroken = {}, ...visualLinks } = authoredLinks || {};
         occupied.push({
           x,
           y: this.rows - 1 - rowFromBottom,
-          trash: true,
-          material: "trash",
+          trash: !normal,
+          normalTrash: normal,
+          material: normal ? "default" : trashHp > 1 ? "metal" : "trash",
+          trashHp,
           colorIndex,
           baseColor: TRASH_MINO_COLOR,
+          ...(normal
+            ? { visualLinks: { ...emptyLinks(), ...visualLinks } }
+            : {}),
+          broken: {
+            top: normal ? Boolean(authoredBroken.top) : trashHp === 2,
+            right: normal ? Boolean(authoredBroken.right) : trashHp === 2,
+            bottom: normal ? Boolean(authoredBroken.bottom) : trashHp === 2,
+            left: normal ? Boolean(authoredBroken.left) : trashHp === 2,
+          },
         });
       }
       // A fully filled authored row would create an unavoidable immediate
@@ -253,15 +285,17 @@ export class TrashSystem {
   }
 
   populateBoard(board) {
-    this.cells().forEach(({ x, y, colorIndex, baseColor }) =>
+    this.cells().forEach(({ x, y, colorIndex, baseColor, material, trashHp, broken, trash, normalTrash, visualLinks }) =>
       board.set(x, y, {
         colorIndex,
-        material: "trash",
+        material: material || "trash",
+        trashHp: Math.max(1, Math.floor(Number(trashHp) || 1)),
         baseColor,
-        trash: true,
-        pieceId: `trash-${x}-${y}-${this.level}`,
-        visualLinks: emptyLinks(),
-        broken: { top: false, right: false, bottom: false, left: false },
+        trash: Boolean(trash),
+        normalTrash: Boolean(normalTrash),
+        pieceId: trash ? `trash-${x}-${y}-${this.level}` : `pattern-normal-${this.level}`,
+        visualLinks: visualLinks || emptyLinks(),
+        broken: broken || { top: false, right: false, bottom: false, left: false },
       }),
     );
   }

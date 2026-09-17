@@ -133,9 +133,16 @@ export class GameManager {
     });
     this.playfield.loadSkin(this.session?.skin);
     const chain = this.session?.roomRules?.chain || {};
+    const renderPalette = ["color-lines", "color-clusters"].includes(chain.mode);
     this.playfield.setPalette(
-      (chain.colors || []).slice(0, Math.max(1, Math.floor(Number(chain.colorCount) || 1))),
+      renderPalette
+        ? (chain.colors || []).slice(0, Math.max(1, Math.floor(Number(chain.colorCount) || 1)))
+        : [],
     );
+    this.playfield.setTrashAppearance({
+      desaturation: Number(this.session?.roomRules?.mutators?.trashDesaturation ?? 0.5),
+      damagedBrightness: Number(this.session?.roomRules?.mutators?.trashDamagedBrightness ?? 0.55),
+    });
     this.playfield.setHoldAction(() => this.holdPiece());
     this.playfield.setRestartAction(() => this.restartAfterGameOver());
     this.trash = new TrashSystem(this.session?.trash, this.trashRandom, this.session?.roomRules);

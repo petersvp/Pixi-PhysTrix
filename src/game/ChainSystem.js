@@ -67,7 +67,7 @@ export function findColorChainGroups(board, rules = {}) {
     return groups;
   }
   if (mode !== "color-clusters") return [];
-  const minimum = Math.max(2, Number(rules.clusterSize) || 2);
+  const minimum = Math.max(2, Number(rules.clusterSize) || 17);
   const visited = new Set();
   const groups = [];
   board.forEachCell((tile, x, y) => {
