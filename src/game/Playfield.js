@@ -62,6 +62,7 @@ export class Playfield {
     height = GAME_VIEWPORT_HEIGHT,
     skinBaseUrl = "minoskins",
     queueSize,
+    showGodEssenceWallet = false,
   }) {
     this.skinBaseUrl = skinBaseUrl;
     this.layout = createPlayfieldLayout({ cols, rows, cell, width, height, queueSize });
@@ -134,6 +135,7 @@ export class Playfield {
       overlayLayout: this.layout,
       material: this.material,
       previewMaterials: { attachment: this.attachmentMaterial, gem: this.gemMaterial, metal: this.metalMaterial },
+      showGodEssenceWallet,
     });
     this.punch = { scale: 0, y: 0, rotation: 0, life: 0 };
   }

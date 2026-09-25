@@ -12,6 +12,11 @@ export class GameplayContract {
   onSpawn(_game, _piece) {}
   onGameOver(_game) {}
   lock(_game) {}
+  lockedMinoCount(game) {
+    let count = 0;
+    game.board.forEachCell(() => count++);
+    return count;
+  }
   release(_game) {
     return false;
   }

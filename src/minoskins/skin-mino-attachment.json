@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "values": {
+    "sdfBlend": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "previewRange": [
+      0.2800000011920929,
+      0,
+      0,
+      0
+    ],
+    "cornerRadius": [
+      0.5860000252723694,
+      0,
+      0,
+      0
+    ],
+    "sdfStrength": [
+      3,
+      0,
+      0,
+      0
+    ],
+    "sdfDebug": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "albedoDarkness": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "transparency": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "finalAlpha": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "light": [
+      -0.4300000071525574,
+      -1,
+      1,
+      0
+    ],
+    "normalEnabled": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "normalPreview": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "bevelWidth": [
+      2.5199999809265137,
+      0,
+      0,
+      0
+    ],
+    "bevelHardness": [
+      1.7999999523162842,
+      0,
+      0,
+      0
+    ],
+    "specularEnabled": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "metallic": [
+      0.23999999463558197,
+      0,
+      0,
+      0
+    ],
+    "smoothness": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "specularTint": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "specularPower": [
+      17,
+      0,
+      0,
+      0
+    ],
+    "edgeTone": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "edgeWidth": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "selfEdgeTone": [
+      -0.17000000178813934,
+      0,
+      0,
+      0
+    ],
+    "selfEdgeWidth": [
+      0.08500000089406967,
+      0,
+      0,
+      0
+    ],
+    "brokenEdgeTone": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "brokenEdgeWidth": [
+      0.1850000023841858,
+      0,
+      0,
+      0
+    ],
+    "brokenEdgeOffset": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "brokenDistortion": [
+      0.800000011920929,
+      0,
+      0,
+      0
+    ],
+    "brokenNoiseScale": [
+      8.100000381469727,
+      0,
+      0,
+      0
+    ],
+    "brokenSdfBlend": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "reflectionEnabled": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "reflectionOffset": [
+      0,
+      -18,
+      0,
+      0
+    ],
+    "reflectionDownsample": [
+      1,
+      0,
+      0,
+      0
+    ]
+  },
+  "curves": {
+    "bevelProfile": {
+      "resolution": 8,
+      "points": [
+        0.6189236111111112,
+        1,
+        1,
+        0,
+        0.7300347222222222,
+        0.8550347222222222,
+        null,
+        1
+      ],
+      "mode": "smooth"
+    },
+    "transparencyCurve": {
+      "resolution": 2,
+      "points": [
+        1,
+        1
+      ],
+      "mode": "linear"
+    },
+    "finalAlphaCurve": {
+      "resolution": 32,
+      "points": [
+        1,
+        1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1,
+        0.34396701388888884,
+        null,
+        null,
+        0.1773003472222222,
+        null,
+        null,
+        null,
+        null,
+        0.34396701388888884,
+        1,
+        0.9967447916666666,
+        1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0.9689670138888888
+      ],
+      "mode": "smooth"
+    },
+    "metallicCurve": {
+      "resolution": 8,
+      "points": [
+        1,
+        null,
+        null,
+        null,
+        0.7146267361111112,
+        null,
+        null,
+        0
+      ],
+      "mode": "smooth"
+    }
+  }
+}

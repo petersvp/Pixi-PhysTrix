@@ -31,6 +31,16 @@ const lineClearNames = [
 export const chainName = (count) =>
   lineClearNames[Math.min(20, count)] || `IMPOSTRIX`;
 
+export const chainIndex = (text) => {
+  const value = String(text || "").toUpperCase();
+
+  const index = lineClearNames.findIndex(
+    (name) => name && value.includes(name),
+  );
+
+  return index > 0 ? index : 0;
+};
+
 /** Find each removable same-colour group without changing polyomino topology. */
 export function findColorChainGroups(board, rules = {}) {
   const mode = rules.mode;

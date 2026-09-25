@@ -33,6 +33,9 @@ export const SETTINGS_BIND_PAD_BUTTON_WIDTH = 108;
 // It prevents a padded desktop-canvas look while preserving the attached rails.
 export const PORTRAIT_PLAYFIELD_HORIZONTAL_BLEED = 12;
 export const SHOW_GARBAGE_METER = false;
+// The wallet is opt-in per session (God Essence), rather than a universal
+// single-player HUD element.  Keep the legacy global switch off; Playfield
+// passes the explicit session flag to the HUD.
 export const SHOW_ITEM_PANEL = false;
 
 // Start menu layout. Portrait uses a two-by-two menu stack and a third action
@@ -145,16 +148,16 @@ export const HUD_STATS_Y_OFFSET = 36;
 export const HUD_STATS_CONTENT_HEIGHT = 288;
 
 export const ITEM_PANEL_WIDTH = 265;
-export const ITEM_PANEL_HEIGHT = 58;
+export const ITEM_PANEL_HEIGHT = 35;
 export const ITEM_PANEL_Y_OFFSET = 5;
 
 // Detach the item bar below a narrow field when its fixed width would exceed
 // the available playfield width and make a fused bottom join look incorrect.
 export const ITEM_PANEL_DETACHED_BLOCK_OFFSET = 0.15;
-export const ITEM_SLOT_COUNT = 5;
-export const ITEM_SLOT_SIZE = 38;
-export const ITEM_SLOT_GAP = 12;
-export const ITEM_SLOT_Y = 10;
+export const ITEM_SLOT_COUNT = 10;
+export const ITEM_SLOT_SIZE = 18;
+export const ITEM_SLOT_GAP = 0;
+export const ITEM_SLOT_Y = 8;
 
 // Score callout typography. The clear/spin remains the visual focus.
 export const CALLOUT_MAIN_FONT_SIZE = 40;

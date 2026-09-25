@@ -107,6 +107,12 @@ import { AdvancedLineRenderer } from "../render/AdvancedLineRenderer.js";
 const pluralizeClearRank = (rank) =>
   rank.endsWith("X") ? `${rank}ES` : rank.endsWith("E") ? `${rank}S` : `${rank}S`;
 
+const multiplyRgb = (color, multiplier) => {
+  const channel = (shift) =>
+    Math.min(0xff, Math.round(((color >> shift) & 0xff) * multiplier));
+  return (channel(16) << 16) | (channel(8) << 8) | channel(0);
+};
+
 const statMarkup = (label, current, target = null, score = false, completed = false) =>
   `<div class="stat${completed ? " completed" : ""}"><span class="label">${label}</span><br><span class="current">${current}</span>${target === null ? "" : score ? `<br><span class="scoreTarget">/${target}</span>` : `<span class="target">/${target}</span>`}</div>`;
 
@@ -233,6 +239,7 @@ export class SinglePlayerHud {
     material,
     previewMaterials = {},
     gameOverOnly = false,
+    showGodEssenceWallet = false,
   }) {
     this.root = root;
     this.layout = layout;
@@ -241,6 +248,7 @@ export class SinglePlayerHud {
     this.material = material;
     this.previewMaterials = previewMaterials;
     this.gameOverOnly = gameOverOnly;
+    this.showGodEssenceWallet = showGodEssenceWallet;
     if (!gameOverOnly) this.create();
     this.createOverlays();
   }
@@ -473,18 +481,13 @@ export class SinglePlayerHud {
 
   createItemSlots(panel, rect) {
     const slots = new PIXI.Graphics();
-    slots.label = "itemSlots";
-    const totalWidth =
-      ITEM_SLOT_COUNT * ITEM_SLOT_SIZE + (ITEM_SLOT_COUNT - 1) * ITEM_SLOT_GAP;
-    const firstX = (rect.width - totalWidth) / 2;
-    for (let index = 0; index < ITEM_SLOT_COUNT; index++) {
-      const x = firstX + index * (ITEM_SLOT_SIZE + ITEM_SLOT_GAP);
-      slots
-        .roundRect(x, ITEM_SLOT_Y, ITEM_SLOT_SIZE, ITEM_SLOT_SIZE, 7)
-        .fill({ color: COLORS.PANEL_BG, alpha: 0.7 })
-        .stroke({ width: 2, color: COLORS.PANEL_ACCENT, alpha: 0.55 });
-    }
-    panel.addChild(slots);
+    slots.label = "godEssenceWallet";
+    const sections = new PIXI.Container();
+    sections.label = "godEssenceWalletSections";
+    this.itemSlots = slots;
+    this.walletSections = sections;
+    panel.addChild(slots, sections);
+    this.updateGodEssenceWallet();
   }
 
   createPreviewSlots(panel, slots, name) {
@@ -536,7 +539,7 @@ export class SinglePlayerHud {
     );
     if (SHOW_GARBAGE_METER)
       this.garbagePanel = this.createFrame("", this.layout.garbage);
-    if (SHOW_ITEM_PANEL) {
+    if (SHOW_ITEM_PANEL || this.showGodEssenceWallet) {
       this.itemPanel = this.createFrame(
         "",
         this.layout.items,
@@ -627,6 +630,77 @@ export class SinglePlayerHud {
     this.nextPanel.addChild(this.nextPreview);
     this.holdRenderer = new PreviewPanel(this.layout.hold.width, this.material, this.previewMaterials);
     this.nextRenderer = new PreviewPanel(this.layout.next.width, this.material, this.previewMaterials);
+  }
+
+  updateGodEssenceWallet(sections = [], active = 0) {
+    if (!this.itemSlots || !this.walletSections) return;
+    const actualSections = [...sections, active]
+      .map((value) => Math.max(0, Math.floor(Number(value) || 0)))
+      .filter(Boolean);
+    const horizontalInset = 12;
+    const barWidth = this.layout.items.width - horizontalInset * 2;
+    const cellWidth = barWidth / ITEM_SLOT_COUNT;
+    const barHeight = ITEM_SLOT_SIZE;
+    const firstX = horizontalInset;
+    const y = ITEM_SLOT_Y;
+    const slots = this.itemSlots;
+    const itemSections = this.walletSections;
+    slots.clear();
+    itemSections.removeChildren().forEach((section) => section.destroy());
+    // The wallet is one connected rail. The grid is deliberately quiet: its
+    // dividers establish ten capacities without making them look like items.
+    slots
+      .roundRect(firstX, y, barWidth, barHeight, 6)
+      .fill({ color: COLORS.PANEL_BG, alpha: 0.78 })
+      .stroke({ width: 1, color: COLORS.PANEL_ACCENT, alpha: 0.58 });
+    let cursor = 0;
+    actualSections.forEach((size) => {
+      const width = Math.min(size, ITEM_SLOT_COUNT - cursor);
+      if (!width) return;
+      const importance = Math.min(1, Math.max(0, (width - 1) / (ITEM_SLOT_COUNT - 1)));
+      const color =
+        (Math.round(0x9f + (0xff - 0x9f) * importance) << 16) |
+        (Math.round(0x2a + (0xcc - 0x2a) * importance) << 8) |
+        Math.round(0x10 * (1 - importance));
+      const outlineBrightnessMin = 1.3;
+      const outlineBrightnessMax = 2.4;
+      const outlineBrightnessT = Math.min(1, Math.max(0, (width - 1) / 3));
+      const outlineBrightness =
+        outlineBrightnessMin +
+        (outlineBrightnessMax - outlineBrightnessMin) * outlineBrightnessT;
+      const outlineColor = multiplyRgb(color, outlineBrightness);
+      // Sections are a translucent dark orange-red through gold (#fc0).
+      // The section is inset 3px, then receives a 4px coloured border that
+      // deliberately projects outward from its translucent fill.
+      const x = firstX + cursor * cellWidth + 3;
+      const sectionWidth = width * cellWidth - 6;
+      const sectionY = y + 3;
+      const sectionHeight = barHeight - 6;
+      const section = new PIXI.Graphics();
+      section.label = "godEssenceWalletSection";
+      section.filters = [
+        new PIXI.filters.GlowFilter({
+          distance: 10,
+          outerStrength: 2,
+          innerStrength: 1,
+          color: outlineColor,
+          quality: 0.5,
+          knockout: false,
+        }),
+      ];
+      section
+        .roundRect(x, sectionY-1, sectionWidth, sectionHeight+2, 2)
+        .fill({ color, alpha: 0.7 })
+        .roundRect(x-1, sectionY-2, sectionWidth+2, sectionHeight+4, 3)
+        .stroke({ width: 2, color: outlineColor, alpha: 0.95 });
+      itemSections.addChild(section);
+      cursor += width;
+    });
+    for (let index = 1; index < ITEM_SLOT_COUNT; index += 1) {
+      const x = firstX + index * cellWidth;
+      slots.moveTo(x, y + 2).lineTo(x, y + barHeight - 2)
+        .stroke({ width: 1, color: COLORS.PANEL_ACCENT, alpha: 0.2 });
+    }
   }
 
   setHoldAction(callback) {
@@ -1324,6 +1398,8 @@ export class SinglePlayerHud {
     lives = 1,
     showHold = true,
     showQueue = true,
+    godEssenceWallet = [],
+    godEssenceActive = 0,
   }) {
     // Callers that deliberately have no objectives may pass null. Normalize it
     // here so the HUD always treats that as an empty objective set.
@@ -1332,6 +1408,7 @@ export class SinglePlayerHud {
     this.holdPanel.visible = showHold;
     this.holdPanel.eventMode = showHold ? "static" : "none";
     this.nextPanel.visible = showQueue;
+    this.updateGodEssenceWallet(godEssenceWallet, godEssenceActive);
     const totalSeconds = Math.floor(elapsedMs / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = String(totalSeconds % 60).padStart(2, "0");

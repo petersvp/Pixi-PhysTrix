@@ -122,6 +122,7 @@ export class PhysicsGameplay extends GameplayContract {
       hardDrop = false,
     } = {},
   ) {
+    game.beginGodEssenceTurn();
     const piece = game.active;
     if (!piece) return null;
     if (piece.cells().length > game.rows * game.cols) {
@@ -193,6 +194,13 @@ export class PhysicsGameplay extends GameplayContract {
         this.minoDropSpawnPending ||
         this.trashUpRemaining > 0 ||
         this.physics?.hasPendingVanish(),
+    );
+  }
+
+  lockedMinoCount() {
+    return this.physics.bodies.reduce(
+      (count, body) => count + (body.GetUserData?.()?.cells?.length || 0),
+      0,
     );
   }
 
@@ -282,6 +290,7 @@ export class PhysicsGameplay extends GameplayContract {
       });
     }
     const vanished = result.vanished;
+    game.collectGodGems(vanished);
     if (!vanished.length) return;
     const lines =
       result.vanishedLines.length || Math.floor(vanished.length / game.cols);
@@ -300,6 +309,10 @@ export class PhysicsGameplay extends GameplayContract {
     this.combo += 1;
     game.lines += lines;
     game.sound.clear(Math.min(4, lines));
+    game.emitAudioEvent("materialsClear", {
+      tiles: vanished.map((tile) => ({ ...tile })),
+      mode: game.session?.roomRules?.chain?.mode || "lines-out",
+    });
     const spin = this.pendingSpin;
     const straightnessMultiplier = result.vanishedLines.length
       ? result.vanishedLines.reduce(
@@ -334,6 +347,13 @@ export class PhysicsGameplay extends GameplayContract {
     const allClear = !trashUp && this.physics.bodies.length === 0;
     game.statistics.recordClear(lines, allClear);
     game.statistics.recordSpin(spin, lines, this.pendingSpinOrder);
+    game.emitAudioEvent("chainClear", {
+      chainCount: Math.max(1, result.vanishedLines.length || 1),
+      comboLevel: this.combo,
+      isSpin: game.spinAudioValue(spin, lines, this.pendingSpinOrder),
+      perfectClear: allClear,
+      trashUp,
+    });
     const pointsAwarded =
       Math.round(baseScore * straightnessMultiplier) +
       guidelineComboScore(this.combo, game.level) +

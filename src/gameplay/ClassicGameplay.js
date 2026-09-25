@@ -55,6 +55,7 @@ export class ClassicGameplay extends GameplayContract {
     this.resolve = null;
     this.pendingSpin = "";
     this.pendingSpinOrder = 4;
+    this.resolveChainCount = 0;
     this.backToBack = false;
     this.minoDropsAfterInitialScan = false;
     this.minoDropsAfterResolve = false;
@@ -88,6 +89,7 @@ export class ClassicGameplay extends GameplayContract {
   }
 
   lock(game) {
+    game.beginGodEssenceTurn();
     const piece = game.active;
     const spin = game.detectSpin(piece);
     const lockedCells = piece.cells().filter((cell) => cell.y >= 0);
@@ -197,7 +199,14 @@ export class ClassicGameplay extends GameplayContract {
     });
     this.pendingSpin = "";
   }
-  awardClear(game, lines, clearedRows = [], trashUp = false, extraMinos = 0) {
+  awardClear(
+    game,
+    lines,
+    clearedRows = [],
+    trashUp = false,
+    extraMinos = 0,
+    clearedTiles = game.board.lastClearedTiles,
+  ) {
     game.playfield.matchPunch();
     const spin = this.pendingSpin;
     game.lines += lines;
@@ -253,6 +262,17 @@ export class ClassicGameplay extends GameplayContract {
     if (spin === "MEGASPIN") game.goalProgress.megaspins += 1;
     if (allClear) game.goalProgress.perfectClears += 1;
     game.sound.clear(lines);
+    game.emitAudioEvent("materialsClear", {
+      tiles: clearedTiles.map((tile) => ({ ...tile })),
+      mode: game.session?.roomRules?.chain?.mode || "lines-out",
+    });
+    game.emitAudioEvent("chainClear", {
+      chainCount: Math.max(1, this.resolveChainCount ?? 1),
+      comboLevel: game.classicCombo,
+      isSpin: game.spinAudioValue(spin, lines, this.pendingSpinOrder),
+      perfectClear: allClear,
+      trashUp,
+    });
     const clearName = `${chainName(lines)}${extraMinos > 0 ? `+${extraMinos}` : ""}!`;
     const primary = trashUp
       ? "TRASH\nUP!"
@@ -293,6 +313,7 @@ export class ClassicGameplay extends GameplayContract {
     });
     this.pendingSpin = "";
     this.pendingSpinOrder = 4;
+    this.resolveChainCount = 0;
   }
   step(game, ms) {
     if (!this.resolve) return;
@@ -310,6 +331,10 @@ export class ClassicGameplay extends GameplayContract {
         (sum, group) => sum + (Number(group.extraMinoCount) || 0),
         0,
       );
+      const clearedTiles = game.board.lastClearedTiles.map((tile) => ({ ...tile }));
+      this.resolveChainCount = this.resolve.isColorClear
+        ? this.resolve.colorGroups.length
+        : this.resolve.rows.length;
       game.board.lastClearedTiles.forEach((tile) =>
         game.playfield.effects.burst(
           tile.x,
@@ -320,13 +345,14 @@ export class ClassicGameplay extends GameplayContract {
         LINE_CLEAR_PARTICLE_VERTICAL_FORCE,
         ),
       );
+      game.collectGodGems(game.board.lastClearedTiles);
       const trashUp =
         game.trash.enabled && !game.trash.boardHasTrash(game.board);
       if (trashUp) {
         game.board.reset();
         game.trash.advance();
       }
-      this.awardClear(game, lines, this.resolve.rows, trashUp, extraMinos);
+      this.awardClear(game, lines, this.resolve.rows, trashUp, extraMinos, clearedTiles);
       if (trashUp) {
         this.resolve.phase = "trashUp";
         this.resolve.remaining = TRASH_UP_TRANSITION_MS;

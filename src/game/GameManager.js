@@ -10,7 +10,7 @@ import { GameState } from "./GameState.js";
 import { PieceQueue } from "./PieceQueue.js";
 import { loadPersistentSettings } from "./Settings.js";
 import { InputManager } from "./InputManager.js";
-import { Polyomino } from "./Polyomino.js";
+import { Polyomino, polyominoCentroid } from "./Polyomino.js";
 import { projectGhost } from "./GhostProjection.js";
 import { SoundEngine } from "../audio/SoundEngine.js";
 import {
@@ -85,6 +85,7 @@ export class GameManager {
     this.holdEnabled = this.session?.roomRules?.mutators?.enableHold !== false;
     this.input = new InputManager();
     this.sound = new SoundEngine(this.settings);
+    this.audioEvents = new EventTarget();
     this.state = GameState.START;
     this.score = 0;
     this.lines = 0;
@@ -98,6 +99,7 @@ export class GameManager {
     this.horizontalRepeat = 0;
     this.horizontalInitial = true;
     this.softDropRepeat = 0;
+    this.softDropDistance = 0;
     this.touchSoftDropTargetY = null;
     this.grounded = false;
     this.lockTimer = 0;
@@ -106,6 +108,8 @@ export class GameManager {
     this.goalProgress = { combos: 0, chains: 0, megaspins: 0, perfectClears: 0 };
     this.lives = this.initialLives();
     this.godEssence = 0;
+    this.godEssenceWallet = [];
+    this.godEssenceTurn = 0;
     this.id = 1;
     // Sessions always run inside AppShell's persistent v8 Application.
     // Creating a second renderer here would violate scene routing and can
@@ -130,6 +134,7 @@ export class GameManager {
       cell: CELL,
       skinBaseUrl: this.session?.skinBaseUrl,
       queueSize: this.session?.roomRules?.mutators?.queueSize,
+      showGodEssenceWallet: this.session?.roomRules?.pvp?.godEssence === true,
     });
     this.playfield.loadSkin(this.session?.skin);
     const chain = this.session?.roomRules?.chain || {};
@@ -205,6 +210,36 @@ export class GameManager {
     );
   }
 
+  emitAudioEvent(type, detail = {}) {
+    this.audioEvents.dispatchEvent(new CustomEvent(type, { detail }));
+  }
+
+  spinAudioValue(spin, lines = 0, order = 4) {
+    if (!spin) return 0;
+    if (spin === "MEGASPIN" || order >= 5) return 1;
+    return Math.min(1, Math.max(0, Number(lines) || 0) / 3);
+  }
+
+  onAudioEvent(type, listener) {
+    this.audioEvents.addEventListener(type, listener);
+    return () => this.audioEvents.removeEventListener(type, listener);
+  }
+
+  movementAudioDetail(phase, direction = 0) {
+    return {
+      phase,
+      direction,
+      position: polyominoCentroid(this.active?.cells() || []),
+    };
+  }
+
+  lockedMinoCount() {
+    if (this.gameplay?.lockedMinoCount) return this.gameplay.lockedMinoCount(this);
+    let count = 0;
+    this.board.forEachCell(() => count++);
+    return count;
+  }
+
   start() {
     if (this.failed) return false;
     this.board.reset();
@@ -232,6 +267,7 @@ export class GameManager {
     this.horizontalRepeat = 0;
     this.horizontalInitial = true;
     this.softDropRepeat = 0;
+    this.softDropDistance = 0;
     this.touchSoftDropTargetY = null;
     this.gravity = 0;
     this.grounded = false;
@@ -241,6 +277,8 @@ export class GameManager {
     this.goalProgress = { combos: 0, chains: 0, megaspins: 0, perfectClears: 0 };
     this.lives = this.initialLives();
     this.playfield.hud.resetCallout();
+    this.godEssenceWallet = [];
+    this.godEssenceTurn = 0;
     this.state = GameState.PLAYING;
     this.onGameStarted?.({ game: this });
     this.spawn();
@@ -284,6 +322,28 @@ export class GameManager {
     // This is the hidden unspent Essence balance. PieceQueue spends it only
     // as new queue entries are generated using its queue-size distribution.
     this.godEssence = this.queue.pendingGems;
+  }
+  beginGodEssenceTurn() {
+    if (this.session?.roomRules?.pvp?.godEssence !== true) return;
+    if (this.godEssenceTurn > 0) {
+      this.godEssenceWallet.push(this.godEssenceTurn);
+      this.godEssenceWallet = this.godEssenceWallet.slice(-10);
+    }
+    this.godEssenceTurn = 0;
+  }
+  collectGodGems(cells = []) {
+    if (this.session?.roomRules?.pvp?.godEssence !== true) return;
+    const gems = cells.filter((cell) => cell?.material === "gem" || cell?.gem).length;
+    if (gems) this.godEssenceTurn += gems;
+  }
+  awardGodEssenceWalletSections(...sections) {
+    if (this.session?.roomRules?.pvp?.godEssence !== true) return false;
+    const awarded = (sections.length ? sections : [1])
+      .map((section) => Math.max(1, Math.floor(Number(section) || 1)));
+    this.godEssenceWallet.push(...awarded);
+    this.godEssenceWallet = this.godEssenceWallet.slice(-10);
+    this.render();
+    return [...this.godEssenceWallet];
   }
   applyPVPAttack(type, value = 0) {
     const count = Math.max(0, Math.floor(Number(value) || 0));
@@ -399,6 +459,9 @@ export class GameManager {
     this.canHold = Boolean(this.session?.roomRules?.mutators?.infiniteHold);
     this.sound.hold();
     this.onHoldChanged?.({ hold: this.hold, canHold: this.canHold });
+    this.emitAudioEvent("hold", {
+      position: polyominoCentroid(this.active?.cells() || []),
+    });
     return true;
   }
   releaseActive() {
@@ -429,6 +492,8 @@ export class GameManager {
       moved = true;
     }
     this.updateLockState(moved);
+    if (moved)
+      this.emitAudioEvent("move", this.movementAudioDetail("init", direction));
     return moved;
   }
   hardDrop() {
@@ -454,6 +519,18 @@ export class GameManager {
       colorIndex: this.active.colorIndex,
       baseColor: this.active.color,
     });
+    this.emitAudioEvent("hardDrop", {
+      fromCells: hardDropStart,
+      toCells: this.active.cells(),
+      blocksTraveled: Math.max(
+        0,
+        Math.round(
+          polyominoCentroid(this.active.cells()).y - polyominoCentroid(hardDropStart).y,
+        ),
+      ),
+      position: polyominoCentroid(this.active.cells()),
+      rows: this.rows,
+    });
     this.playfield.hardDropPunch();
     this.lock({ hardDrop: true });
     return true;
@@ -461,8 +538,15 @@ export class GameManager {
   softDrop() {
     if (!this.canAcceptDirectControl()) return false;
     const moved = this.active.move(this.board, 0, 1);
-    if (moved) this.score += 1;
+    if (moved) {
+      this.score += 1;
+      this.softDropDistance += 1;
+    }
     this.updateLockState(moved);
+    if (moved)
+      this.emitAudioEvent("softDrop", {
+        position: polyominoCentroid(this.active.cells()),
+      });
     return moved;
   }
   setTouchSoftDropTargetY(targetY) {
@@ -660,7 +744,22 @@ export class GameManager {
     );
   }
   lock(options) {
-    this.gameplay.lock(this, options);
+    const lockOptions = options || {};
+    const softDropDistance = this.softDropDistance;
+    const position = this.active ? polyominoCentroid(this.active.cells()) : null;
+    this.gameplay.lock(this, lockOptions);
+    if (softDropDistance > 0 && !lockOptions.hardDrop) {
+      this.emitAudioEvent("hardDrop", {
+        softDrop: true,
+        blocksTraveled: 0,
+        position,
+        rows: this.rows,
+      });
+    }
+    this.emitAudioEvent("lock", {
+      density: this.lockedMinoCount() /
+        (Math.max(1, this.cols - 2) * this.rows),
+    });
   }
   rotateActive(amount) {
     const rotated = this.active?.rotate(this.board, amount);
@@ -668,7 +767,13 @@ export class GameManager {
     if (!rotated) return false;
     // This is immediate input feedback only. The gameplay mode still keeps
     // the spin pending until its later lock/clear scoring rules resolve it.
-    if (this.detectSpin(this.active)) {
+    const spin = this.detectSpin(this.active);
+    this.emitAudioEvent("rotate", {
+      isSpin: Boolean(spin),
+      spin,
+      position: polyominoCentroid(this.active.cells()),
+    });
+    if (spin) {
       this.playfield.spinPunch(amount);
       this.playfield.effects.outlineBurst(
         this.active.cells().filter((cell) => cell.y >= 0),
@@ -771,7 +876,10 @@ export class GameManager {
     if (desiredDirection) {
       this.horizontalRepeat -= ms;
       if (this.horizontalRepeat <= 0) {
-        this.updateLockState(this.active.move(this.board, desiredDirection, 0));
+        const phase = this.horizontalInitial ? "init" : "das";
+        const moved = this.active.move(this.board, desiredDirection, 0);
+        this.updateLockState(moved);
+        if (moved) this.emitAudioEvent("move", this.movementAudioDetail(phase, desiredDirection));
         this.horizontalRepeat = this.horizontalInitial
           ? this.settings.das
           : this.settings.arr;
@@ -844,6 +952,10 @@ export class GameManager {
     this.playfield.hud.showCountdown(stage > 0 ? String(stage) : "GO!", {
       color: this.resumingAfterLifeLoss ? COLORS.LIFE_LOSS_TEXT : COLORS.FIELD_TEXT,
     });
+    this.emitAudioEvent("countdown", {
+      stage,
+      label: stage > 0 ? String(stage) : "GO!",
+    });
   }
 
   resumeAfterLifeLoss() {
@@ -867,6 +979,8 @@ export class GameManager {
       next: this.queue.items,
       showHold: this.holdEnabled,
       showQueue: this.queue.targetSize > 0,
+      godEssenceWallet: this.godEssenceWallet,
+      godEssenceActive: this.godEssenceTurn,
     });
     this.playfield.renderer.draw(
       this.board,
