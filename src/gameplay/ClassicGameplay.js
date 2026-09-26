@@ -272,6 +272,7 @@ export class ClassicGameplay extends GameplayContract {
       isSpin: game.spinAudioValue(spin, lines, this.pendingSpinOrder),
       perfectClear: allClear,
       trashUp,
+      gameSpeed: game.level,
     });
     const clearName = `${chainName(lines)}${extraMinos > 0 ? `+${extraMinos}` : ""}!`;
     const primary = trashUp

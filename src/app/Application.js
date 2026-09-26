@@ -43,9 +43,27 @@ export class Application {
 
   async launch() {
     // Pixi rasterizes text to textures, so wait for Quantico before any scene
-    // creates its labels. A failed external font request still falls back.
-    await document.fonts.load("400 16px Quantico").catch(() => {});
-    await document.fonts.load("700 16px Quantico").catch(() => {});
+    // creates its labels. Quantico is vendored; fallback text indicates a
+    // broken local deployment and must be visible in diagnostics.
+    const loadQuantico = async (face) => {
+      try {
+        await document.fonts.load(face);
+      } catch (error) {
+        console.error("[Fonts] Failed to load vendored Quantico face.", {
+          face,
+          error,
+        });
+        return;
+      }
+      if (!document.fonts.check(face))
+        console.error("[Fonts] Vendored Quantico face is unavailable after loading.", {
+          face,
+        });
+    };
+    await Promise.all([
+      loadQuantico("400 16px Quantico"),
+      loadQuantico("700 16px Quantico"),
+    ]);
     await loadMinoShaderSources();
     await this.applySkin(this.session.skin);
     this.shell = await new AppShell(this.root).init();

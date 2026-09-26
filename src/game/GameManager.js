@@ -759,6 +759,7 @@ export class GameManager {
     this.emitAudioEvent("lock", {
       density: this.lockedMinoCount() /
         (Math.max(1, this.cols - 2) * this.rows),
+      gameSpeed: this.level,
     });
   }
   rotateActive(amount) {

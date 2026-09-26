@@ -65,6 +65,8 @@ export class PhysicsGameplay extends GameplayContract {
       },
     );
     game.physics = this.physics;
+    this.physics.onPolyominoImpact = ({ body, position, velocity }) =>
+      game.emitAudioEvent("impactPlastic", { body, position, velocity });
     game.board.isValid = (cells) =>
       cells.every(
         ({ x, y }) =>
@@ -347,12 +349,14 @@ export class PhysicsGameplay extends GameplayContract {
     const allClear = !trashUp && this.physics.bodies.length === 0;
     game.statistics.recordClear(lines, allClear);
     game.statistics.recordSpin(spin, lines, this.pendingSpinOrder);
+    game.updateSpeed();
     game.emitAudioEvent("chainClear", {
       chainCount: Math.max(1, result.vanishedLines.length || 1),
       comboLevel: this.combo,
       isSpin: game.spinAudioValue(spin, lines, this.pendingSpinOrder),
       perfectClear: allClear,
       trashUp,
+      gameSpeed: game.level,
     });
     const pointsAwarded =
       Math.round(baseScore * straightnessMultiplier) +
@@ -385,7 +389,6 @@ export class PhysicsGameplay extends GameplayContract {
       backToBack,
     );
     if (minoDrops) game.onAttack?.({ attackType: "mino-drops", value: minoDrops, source: game });
-    game.updateSpeed();
     if (this.combo >= (Number(game.session?.roomRules?.win?.comboLength) || Infinity))
       game.goalProgress.combos += 1;
     if (lines >= (Number(game.session?.roomRules?.win?.chainLength) || Infinity))

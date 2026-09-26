@@ -92,6 +92,23 @@ export class PhysicsWorld {
       const bodyB = contact.GetFixtureB()?.GetBody?.();
       const fixtureA = contact.GetFixtureA?.();
       const fixtureB = contact.GetFixtureB?.();
+      // This is gameplay-neutral collision data. Consumers such as the
+      // private wrapper may choose how (or whether) to present it.
+      if (this.bodies.includes(bodyA) && this.bodies.includes(bodyB)) {
+        const velocityA = bodyA.GetLinearVelocity?.();
+        const velocityB = bodyB.GetLinearVelocity?.();
+        const velocity = Math.hypot(
+          (velocityA?.x || 0) - (velocityB?.x || 0),
+          (velocityA?.y || 0) - (velocityB?.y || 0),
+        );
+        const position = bodyA.GetPosition?.();
+        this.onPolyominoImpact?.({
+          body: bodyA,
+          otherBody: bodyB,
+          position: position && { x: position.x, y: position.y },
+          velocity,
+        });
+      }
       [[bodyA, bodyB, fixtureB], [bodyB, bodyA, fixtureA]].forEach(([body, other, otherFixture]) => {
         const data = body?.GetUserData?.();
         const otherData = other?.GetUserData?.();
