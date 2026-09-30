@@ -624,6 +624,18 @@ export class GameManager {
     else this.playfield.hud.hideStateMessage();
     this.onPauseChange?.(paused);
   }
+
+  // Server-authoritative multiplayer results can arrive while this game is
+  // still in its 3-2-1 START state. Unlike a player pause, a terminal freeze
+  // must stop that countdown as well, otherwise start() later hides the
+  // result panel and resumes an already-resolved round.
+  freeze() {
+    if (this.state === GameState.GAME_OVER || this.state === GameState.WON)
+      return;
+    this.state = GameState.PAUSED;
+    this.playfield.hud.showPaused();
+    this.onPauseChange?.(true);
+  }
   detectSpin(piece) {
     if (!piece || piece.lastAction !== "rotate" || piece.type === "O")
       return "";

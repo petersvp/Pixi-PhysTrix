@@ -105,6 +105,8 @@ export class PhysicsWorld {
         this.onPolyominoImpact?.({
           body: bodyA,
           otherBody: bodyB,
+          cell: fixtureA?.GetUserData?.(),
+          otherCell: fixtureB?.GetUserData?.(),
           position: position && { x: position.x, y: position.y },
           velocity,
         });

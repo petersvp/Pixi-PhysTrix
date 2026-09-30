@@ -65,8 +65,41 @@ export class PhysicsGameplay extends GameplayContract {
       },
     );
     game.physics = this.physics;
-    this.physics.onPolyominoImpact = ({ body, position, velocity }) =>
+    // Physics-only material routing: Box2D supplies the two contacting
+    // fixtures. Clustered gravity uses ClassicGameplay.playClusteredImpacts.
+    this.physics.onPolyominoImpact = ({
+      body,
+      otherBody,
+      cell,
+      otherCell,
+      position,
+      velocity,
+    }) => {
+      const participants = [
+        { body, cell, data: body?.GetUserData?.() },
+        { body: otherBody, cell: otherCell, data: otherBody?.GetUserData?.() },
+      ];
+      const fallingMetal = participants.find(
+        ({ data, cell: impactCell }) => data?.metalDrop && impactCell?.material === "metal",
+      );
+      const staticTrash = participants.find(
+        ({ data, cell: impactCell }) => data?.trash && impactCell?.trash,
+      );
+      const metalImpact = fallingMetal || staticTrash;
+      if (metalImpact) {
+        // Metal's Health parameter is the source mino's actual remaining HP:
+        // metalLives for a falling drop, trashHp for static trash.
+        game.emitAudioEvent("impactMetal", {
+          body: fallingMetal?.body || (body?.GetUserData?.()?.trash ? otherBody : body),
+          position,
+          velocity,
+          health:
+            fallingMetal?.cell?.metalLives ?? staticTrash?.cell?.trashHp,
+        });
+        return;
+      }
       game.emitAudioEvent("impactPlastic", { body, position, velocity });
+    };
     game.board.isValid = (cells) =>
       cells.every(
         ({ x, y }) =>

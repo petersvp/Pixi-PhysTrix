@@ -71,6 +71,22 @@ export class ClassicGameplay extends GameplayContract {
       ? "classic"
       : "clustered";
   }
+  playClusteredImpacts(game) {
+    // Clustered mode is discrete Board gravity, not Box2D physics. Board
+    // records only groups which reached settled support during this solve.
+    // Tune clustered impacts here. Its value is the number of rows the group
+    // dropped: a group that falls six rows sends 6 / this divider to FMOD.
+    const CLUSTERED_IMPACT_DIVIDER = 5;
+    // Consume completed landings once. The fall animation steps every frame,
+    // so retaining a completed record would replay the same impact each step.
+    game.board.lastStickyImpacts.splice(0).forEach(({ fallDistance, position, material, health }) =>
+      game.emitAudioEvent(material === "metal" ? "impactMetal" : "impactPlastic", {
+        intensity: fallDistance / CLUSTERED_IMPACT_DIVIDER,
+        position,
+        ...(material === "metal" ? { health } : {}),
+      }),
+    );
+  }
 
   beginPendingMinoDrops(game) {
     const drops = game.takePendingMinoDrops();
@@ -83,7 +99,9 @@ export class ClassicGameplay extends GameplayContract {
       settleImmediately: !clustered,
       animateFall: !clustered,
     });
-    if (clustered) game.board.settle(true);
+    if (clustered) {
+      game.board.settle(true);
+    }
     this.resolve = { phase: "fall", initialScan: false };
     return true;
   }
@@ -371,7 +389,11 @@ export class ClassicGameplay extends GameplayContract {
       game.spawn();
       return;
     }
-    if (game.board.updateFallAnimation(ms)) return;
+    const stillFalling = game.board.updateFallAnimation(ms);
+    // Board releases each queued clustered impact at that group's individual
+    // visual landing time, even while other groups remain in the air.
+    this.playClusteredImpacts(game);
+    if (stillFalling) return;
     this.scan(game, Boolean(this.resolve.initialScan));
   }
 

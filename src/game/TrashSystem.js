@@ -19,7 +19,9 @@ const emptyLinks = () => ({
   topLeft: false, topRight: false, bottomRight: false, bottomLeft: false,
 });
 const TRASH_PATTERN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const NORMAL_MINO_TOKEN = 50;
+const NORMAL_MINO_TOKEN = 37;
+const TRASH_TOKEN_BASE = 1;
+const TRASH_COLOR_STRIDE = 12;
 const trashPatternValue = (token) => TRASH_PATTERN_ALPHABET.indexOf(token);
 
 const hash = (x, y, seed) => {
@@ -239,18 +241,21 @@ export class TrashSystem {
         const token = row[sourceX] || "0";
         const value = trashPatternValue(token);
         if (!Number.isFinite(value) || value <= 0) continue;
-        const normal = value >= NORMAL_MINO_TOKEN;
-        const encodedColorState = value >= 4 && this.colors.length;
-        const encoded = value - 4;
+        const normal = value >= NORMAL_MINO_TOKEN && value < NORMAL_MINO_TOKEN + TRASH_COLOR_STRIDE;
+        const encodedTrash = value >= TRASH_TOKEN_BASE && value < NORMAL_MINO_TOKEN;
+        // Patterns are authored exclusively in the shared 0..48 format.
+        // Ignore out-of-range cells instead of interpreting an old format.
+        if (!normal && !encodedTrash) continue;
+        const encoded = value - TRASH_TOKEN_BASE;
         const trashHp = normal
           ? 1
-          : encodedColorState
-          ? Math.min(3, Math.floor(encoded / this.colors.length) + 1)
-          : value === 3 ? 3 : value === 2 ? 2 : 1;
+          : encodedTrash
+          ? Math.min(3, Math.floor(encoded / TRASH_COLOR_STRIDE) + 1)
+          : 1;
         const colorIndex = normal && this.colors.length
-          ? (value - NORMAL_MINO_TOKEN) % this.colors.length
-          : encodedColorState
-          ? encoded % this.colors.length
+          ? Math.min(this.colors.length - 1, (value - NORMAL_MINO_TOKEN) % TRASH_COLOR_STRIDE)
+          : encodedTrash && this.colors.length
+          ? Math.min(this.colors.length - 1, encoded % TRASH_COLOR_STRIDE)
           : -1;
         const authoredLinks = normal
           ? selected?.normalLinks?.[`${sourceX},${sourceRow}`]

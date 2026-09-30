@@ -24,6 +24,10 @@ export class Board {
     this.cells = Array.from({ length: this.rows }, () => Array(this.cols).fill(null));
     this.above = new Map();
     this.lastClearedTiles = [];
+    // Discrete clustered-gravity settlement records. Physics mode never
+    // reads or writes these; it reports Box2D contacts directly instead.
+    this.lastStickyImpacts = [];
+    this.pendingStickyImpacts = [];
   }
   get(x, y) {
     return (y < 0 ? this.above.get(y) : this.cells[y])?.[x] || null;
@@ -398,6 +402,8 @@ export class Board {
     // moving with them, even when authored links would otherwise touch.
     const stationary = survivors.filter(({ tile }) => tile.trash);
     const fallable = survivors.filter(({ tile }) => !tile.trash);
+    this.lastStickyImpacts = [];
+    this.pendingStickyImpacts = [];
     const cells = new Map(
       fallable.map((entry) => [`${entry.x},${entry.y}`, entry]),
     );
@@ -444,9 +450,10 @@ export class Board {
       groups.push(group);
     });
 
-    const fallingGroups = groups.map((group) =>
+    const fallingGroups = groups.map((group, groupIndex) =>
       group.map((entry) => ({
         ...entry,
+        groupIndex,
         sourceY: entry.y,
       })),
     );
@@ -542,6 +549,10 @@ export class Board {
     // then descend together instead of falsely supporting one another midair.
     let movedInSweep = true;
     let sweepCount = 0;
+    const stationaryPositions = new Set(
+      stationary.map(({ x, y }) => `${x},${y}`),
+    );
+    const movedGroupIndexes = new Set();
     const maxSweepCount = this.rows * this.cols + 1;
     while (movedInSweep) {
       if (++sweepCount > maxSweepCount) {
@@ -561,8 +572,17 @@ export class Board {
           ),
         ],
       );
+      const groupAt = new Map(
+        fallingGroups.flatMap((group, groupIndex) =>
+          group.map(({ x, y }) => [`${x},${y}`, groupIndex]),
+        ),
+      );
       islands.sort(bottomFirst).forEach((island) => {
-        island.forEach(({ x, y }) => occupied.delete(`${x},${y}`));
+        island.forEach(({ x, y }) => {
+          const key = `${x},${y}`;
+          occupied.delete(key);
+          groupAt.delete(key);
+        });
         let fall = 0;
         while (
           island.every(({ x, y }) => {
@@ -577,12 +597,55 @@ export class Board {
           fall += 1;
         }
         if (fall) {
+          // An impact belongs only to a group that reaches the floor or a
+          // group that was already settled. A fragment that merely lands on
+          // another fragment which fell this sweep is deliberately silent.
+          const reachesSettledSupport = ({ x, y }) => {
+            const supportY = y + fall + 1;
+            if (supportY >= this.rows) return true;
+            const supportKey = `${x},${supportY}`;
+            if (stationaryPositions.has(supportKey)) return true;
+            const supportGroup = groupAt.get(supportKey);
+            return supportGroup !== undefined && !movedGroupIndexes.has(supportGroup);
+          };
+          const reachedSettledSupport = island.some(reachesSettledSupport);
+          const metalImpactCell = island.find(
+            (cell) => cell.tile.material === "metal" && reachesSettledSupport(cell),
+          );
           island.forEach((cell) => {
             cell.y += fall;
           });
+          island.forEach(({ groupIndex }) => movedGroupIndexes.add(groupIndex));
+          if (reachedSettledSupport) {
+            const position = island.reduce(
+              (center, { x, y }) => ({ x: center.x + x, y: center.y + y }),
+              { x: 0, y: 0 },
+            );
+            position.x /= island.length;
+            position.y /= island.length;
+            const impact = {
+              // This is the clustered/discrete counterpart to a physics
+              // contact. It is emitted only when this group's visual fall
+              // reaches its final board row, not when the solver finds it.
+              fallDistance: fall,
+              position,
+              material: metalImpactCell ? "metal" : "plastic",
+              health: metalImpactCell?.tile.metalLives,
+            };
+            if (animateFall)
+              this.pendingStickyImpacts.push({
+                ...impact,
+                tiles: island.map(({ tile }) => tile),
+              });
+            else this.lastStickyImpacts.push(impact);
+          }
           movedInSweep = true;
         }
-        island.forEach(({ x, y }) => occupied.add(`${x},${y}`));
+        island.forEach(({ x, y, groupIndex }) => {
+          const key = `${x},${y}`;
+          occupied.add(key);
+          groupAt.set(key, groupIndex);
+        });
       });
     }
 
@@ -608,6 +671,15 @@ export class Board {
       tile.renderY = Math.min(y, tile.renderY + step);
       if (tile.renderY < y) moving = true;
       else delete tile.renderY;
+    });
+    // A solve can create several independently falling groups. Complete each
+    // sound when its own visual fall lands; do not wait for other groups whose
+    // longer paths are still animating.
+    this.pendingStickyImpacts = this.pendingStickyImpacts.filter((impact) => {
+      if (impact.tiles.some((tile) => Number.isFinite(tile.renderY))) return true;
+      const { tiles, ...completedImpact } = impact;
+      this.lastStickyImpacts.push(completedImpact);
+      return false;
     });
     return moving;
   }
