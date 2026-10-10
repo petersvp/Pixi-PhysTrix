@@ -12,6 +12,7 @@ import {
   MARKED_MINO_GLOW_STRENGTH,
   MARKED_MINO_OUTLINE_LIGHTNESS,
 } from "../config/effectsConstants.js";
+import { colorNumber } from "../config/colors.js";
 import { MinoQuadRenderer } from "./MinoQuadRenderer.js";
 import { polyominoCentroid } from "../game/Polyomino.js";
 import { metalTint, normalTrashTint } from "./MetalTint.js";
@@ -23,6 +24,43 @@ const lightenColor = (color, amount) => {
     (lift((color >> 8) & 0xff) << 8) |
     lift(color & 0xff)
   );
+};
+
+const blindSeed = (value) => {
+  let hash = 2166136261;
+  for (const char of String(value || "blind")) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
+const blindAlpha = (seed, timeMs) => {
+  const phase = (Math.max(0, timeMs) + blindSeed(seed) % 1000) % 5000;
+  return phase < 360 ? Math.sin((phase / 360) * Math.PI) * 0.25 : 0;
+};
+
+const mixColor = (from, to, amount) => {
+  const mix = (shift) => Math.round(
+    ((from >> shift) & 0xff) + (((to >> shift) & 0xff) - ((from >> shift) & 0xff)) * amount,
+  );
+  return (mix(16) << 16) | (mix(8) << 8) | mix(0);
+};
+
+const setBlindAlpha = (node, alpha, active) => {
+  let filter = node.blindAlphaFilter;
+  if (active && !filter) {
+    filter = new PIXI.AlphaFilter({ alpha });
+    node.blindAlphaFilter = filter;
+    node.filters = [...(node.filters || []), filter];
+  }
+  if (filter) filter.alpha = alpha;
+  if (!active && filter) {
+    node.filters = (node.filters || []).filter((entry) => entry !== filter);
+    filter.destroy();
+    delete node.blindAlphaFilter;
+  }
+  node.alpha = 1;
 };
 
 export class PhysicsRenderer {
@@ -60,10 +98,77 @@ export class PhysicsRenderer {
     this.invalidateMaterial();
   }
 
+  setGodEssencePresentation({ blind = false, blindBlend = 0, desaturated = false, desaturationAmount = 0, neutralMinoColor = "#777777", timeMs = 0 } = {}) {
+    const nextDesaturationAmount = Math.max(0, Math.min(1, Number(desaturationAmount) || 0));
+    if (this.desaturated !== Boolean(desaturated) || this.desaturationAmount !== nextDesaturationAmount) {
+      this.desaturated = Boolean(desaturated);
+      this.desaturationAmount = nextDesaturationAmount;
+      this.neutralMinoColor = colorNumber(neutralMinoColor, 0x777777);
+      this.invalidateMaterial();
+    }
+    this.blindPresentation = Boolean(blind);
+    this.blindBlend = Math.max(0, Math.min(1, Number(blindBlend) || 0));
+    this.presentationTimeMs = timeMs;
+    this.applyBlindPresentation();
+  }
+
+  applyBlindPresentation() {
+    const active = this.blindPresentation || this.blindBlend > 0;
+    this.bodyNodes.forEach((node, body) => {
+      const id = this.bodyData.get(body)?.polyominoId ?? body?.m_userData?.polyominoId;
+      const pulse = blindAlpha(id, this.presentationTimeMs);
+      setBlindAlpha(node, 1 + (pulse - 1) * this.blindBlend, active);
+    });
+    this.markedNodes.forEach((node, body) => {
+      const id = this.bodyData.get(body)?.polyominoId ?? body?.m_userData?.polyominoId;
+      const pulse = blindAlpha(id, this.presentationTimeMs);
+      setBlindAlpha(node, 1 + (pulse - 1) * this.blindBlend, active);
+    });
+  }
+
+  setGodEssenceAtlas(texture, atlas) {
+    this.godEssenceTexture = texture;
+    this.godEssenceAtlas = atlas;
+    this.invalidateMaterial();
+  }
+
+  addGodEssenceOverlay(target, cells, itemIndex, polarity, foreign, centroid) {
+    if (!this.godEssenceTexture || !Number.isInteger(itemIndex) || !cells.length) return;
+    const atlas = this.godEssenceAtlas;
+    const cell = atlas.itemCells?.[itemIndex];
+    const column = Number.isInteger(cell?.column) ? cell.column - 1 : itemIndex % atlas.columns;
+    const row = Number.isInteger(cell?.row) ? cell.row - 1 : Math.floor(itemIndex / atlas.columns);
+    const texture = new PIXI.Texture({
+      source: this.godEssenceTexture.source,
+      frame: new PIXI.Rectangle(
+        column * atlas.cellSize,
+        row * atlas.cellSize,
+        atlas.cellSize,
+        atlas.cellSize,
+      ),
+    });
+    const icon = new PIXI.Sprite(texture);
+    icon.label = "godEssenceItemIcon";
+    const tintIcons = this.palette?.length > 0;
+    icon.anchor.set(0.5);
+    icon.width = 1.72;
+    icon.height = 1.72;
+    const tints = atlas.tints || {};
+    icon.blendMode = tintIcons
+      ? atlas.colorModeItemIconBlendMode ?? atlas.itemIconBlendMode ?? "normal"
+      : atlas.itemIconBlendMode ?? "normal";
+    icon.tint = foreign || polarity === "foreign" ? colorNumber(tints.foreignIcon, 0xffffff)
+      : !tintIcons ? 0xffffff
+      : polarity === "others" ? colorNumber(tints.colorModeOthersIcon ?? tints.othersIcon, 0xffd9df) : colorNumber(tints.colorModeSelfIcon ?? tints.selfIcon, 0xd9ffe6);
+    icon.position.set(0, 0);
+    target.addChild(icon);
+  }
+
   colorFor(cell, fallback) {
     const color = Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
       ? this.palette[cell.colorIndex] ?? fallback
       : cell.baseColor ?? fallback;
+    if (this.desaturationAmount) return mixColor(color, this.neutralMinoColor ?? 0x777777, this.desaturationAmount);
     if (cell.trash && cell.material === "trash" && cell.trashHp === 1)
       return normalTrashTint(color, this.trashAppearance.desaturation);
     if (cell.material !== "metal") return color;
@@ -103,6 +208,14 @@ export class PhysicsRenderer {
             layer, group, data.color, (cell) => this.linksForCell(data, cell), 1, -centroid.x, -centroid.y,
           );
         });
+        this.addGodEssenceOverlay(
+          node,
+          data.cells,
+          data.cells[0]?.godEssenceItemIndex,
+          data.cells[0]?.godEssencePolarity,
+          data.cells[0]?.godEssenceForeign,
+          centroid,
+        );
         node.visualSignature = signature;
       }
       // // Ensure mass label exists as a child
@@ -133,6 +246,7 @@ export class PhysicsRenderer {
       this.renderMarkedBody(body, data, node, signature);
     });
     this.releaseRemovedBodies(aliveBodies);
+    this.applyBlindPresentation();
   }
 
   invalidateMaterial() {
@@ -183,11 +297,15 @@ export class PhysicsRenderer {
         cell.y,
         cell.marked,
         cell.colorIndex,
+        cell.baseColor,
         cell.material,
         cell.metalLives,
         cell.trashHp,
         cell.trash,
         cell.broken,
+        cell.godEssenceItemIndex,
+        cell.godEssencePolarity,
+        cell.godEssenceForeign,
         cell.visualLinks,
       ]),
     ]);

@@ -33,8 +33,19 @@ export class FrameRuleScanner {
     this.lineIds = new WeakMap();
     this.clusterIds = new WeakMap();
     this.nextColorGroupId = 1;
+    this.pendingChainBreak = false;
+    this.catalystActive = false;
+    this.chainsEnabled = true;
+    this.lineSeals = [];
   }
-  colorMatches() {
+  armChainBreak() { this.pendingChainBreak = true; }
+  setCatalystActive(active) { this.catalystActive = Boolean(active); }
+  setChainsEnabled(enabled) { this.chainsEnabled = Boolean(enabled); }
+  setLineSeals(seals = []) { this.lineSeals = Array.isArray(seals) ? seals : []; }
+  isSealedRow(y) {
+    return this.lineSeals.some((seal) => y >= seal.startRow && y <= seal.endRow);
+  }
+  colorMatches(ignoreSeals = false) {
     const { Dynamics } = this.api;
     const cells = new Map();
     let bodies = 0;
@@ -56,6 +67,7 @@ export class FrameRuleScanner {
         const center = body.GetWorldPoint(fixture.GetShape().m_centroid);
         const x = Math.floor(center.x), y = Math.floor(center.y);
         if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) continue;
+        if (!ignoreSeals && this.isSealedRow(y)) continue;
         if (!Number.isInteger(tile.colorIndex) || tile.colorIndex < 0) continue;
         cells.set(`${x},${y}`, { x, y, tile, colorIndex: tile.colorIndex });
       }
@@ -63,6 +75,7 @@ export class FrameRuleScanner {
     const groups = [];
     if (this.chain.mode === "color-lines") {
       const minimum = Math.max(2, Number(this.chain.colorLineLength) || 2);
+      const effectiveMinimum = Math.max(2, minimum - (this.pendingChainBreak ? 1 : 0));
       const directions = [
         ...(this.chain.horizontal ? [[1, 0]] : []),
         ...(this.chain.vertical ? [[0, 1]] : []),
@@ -73,7 +86,7 @@ export class FrameRuleScanner {
         const run = [];
         for (let x = cell.x, y = cell.y; cells.get(`${x},${y}`)?.colorIndex === cell.colorIndex; x += dx, y += dy)
           run.push(cells.get(`${x},${y}`));
-        if (run.length < minimum) return;
+        if (run.length < effectiveMinimum) return;
 
         // Keep the identity on minos rather than their current grid position:
         // Box2D may move a marked line before its vanish deadline. A newly
@@ -92,13 +105,15 @@ export class FrameRuleScanner {
           id,
           y: cell.y,
           tiles: run.map((item) => item.tile),
-          extraMinoCount: run.length - minimum,
+          cells: run,
+          extraMinoCount: run.length - effectiveMinimum,
           scoreMultiplier: 1,
           perfect: false,
         });
       }));
     } else if (this.chain.mode === "color-clusters") {
       const minimum = Math.max(2, Number(this.chain.clusterSize) || 17);
+      const effectiveMinimum = Math.max(2, minimum - (this.pendingChainBreak ? 4 : 0));
       const visited = new Set();
       cells.forEach((cell, key) => {
         if (visited.has(key)) return;
@@ -114,7 +129,7 @@ export class FrameRuleScanner {
             group.push(next);
           });
         }
-        if (group.length >= minimum) {
+        if (group.length >= effectiveMinimum) {
           const id = group
             .map((item) => this.clusterIds.get(item.tile))
             .find(Boolean) ?? `color-cluster:${this.nextColorGroupId++}`;
@@ -123,7 +138,8 @@ export class FrameRuleScanner {
             id,
             y: cell.y,
             tiles: group.map((item) => item.tile),
-            extraMinoCount: group.length - minimum,
+            cells: group,
+            extraMinoCount: group.length - effectiveMinimum,
             scoreMultiplier: 1,
             perfect: false,
           });
@@ -138,12 +154,22 @@ export class FrameRuleScanner {
   scan(force = false) {
     if (force) this.frame = 0;
     else if (++this.frame % FRAMERULE_INTERVAL) return null;
-    if (["color-lines", "color-clusters"].includes(this.chain.mode))
-      return this.colorMatches();
+    this.lastBlockedCells = [];
+    if (!this.chainsEnabled) return [];
+    if (["color-lines", "color-clusters"].includes(this.chain.mode)) {
+      const rawRows = this.lineSeals.length ? this.colorMatches(true) : [];
+      const rows = this.colorMatches();
+      this.lastBlockedCells = rawRows
+        .flatMap((row) => row.cells || [])
+        .filter((cell) => this.isSealedRow(cell.y));
+      this.pendingChainBreak = false;
+      return rows;
+    }
     const M = this.api.Common.Math,
       Body = this.api.Dynamics.b2Body,
       rows = [];
     for (let y = 0; y < this.rows; y++) {
+      const sealed = this.isSealedRow(y);
       const hit = new Map();
       this.world.RayCast(
         (f) => {
@@ -167,25 +193,42 @@ export class FrameRuleScanner {
       const verticalSpread = centers.length
         ? globalThis.Math.max(...centers) - globalThis.Math.min(...centers)
         : 0;
-      if (hit.size >= this.cols && verticalSpread <= this.verticalTolerance) {
+      const tolerance = this.pendingChainBreak ? this.rows : this.verticalTolerance;
+      const requiredTiles = this.cols - (this.catalystActive ? 1 : 0);
+      if (hit.size >= requiredTiles && verticalSpread <= tolerance) {
         const perfect =
           verticalSpread <= PHYSICS_LINE_PERFECT_VERTICAL_TOLERANCE;
-        const straightness = 1 - verticalSpread / this.verticalTolerance;
+        const straightness = 1 - verticalSpread / tolerance;
         const scoreMultiplier = perfect
           ? PHYSICS_LINE_STRAIGHTNESS_MAX_MULTIPLIER
           : PHYSICS_LINE_STRAIGHTNESS_MIN_MULTIPLIER +
             (PHYSICS_LINE_STRAIGHTNESS_MAX_MULTIPLIER -
               PHYSICS_LINE_STRAIGHTNESS_MIN_MULTIPLIER) *
               straightness;
-        rows.push({
+        const match = {
           y,
           tiles: [...hit.keys()],
+          cells: [...hit.keys()].map((tile) => {
+            let cell = null;
+            for (let body = this.world.GetBodyList(); body && !cell; body = body.GetNext()) {
+              for (let fixture = body.GetFixtureList(); fixture; fixture = fixture.GetNext()) {
+                if (fixture.GetUserData() !== tile) continue;
+                const center = body.GetWorldPoint(fixture.GetShape().m_centroid);
+                cell = { x: Math.floor(center.x), y: Math.floor(center.y), tile };
+                break;
+              }
+            }
+            return cell;
+          }).filter(Boolean),
           verticalSpread,
           scoreMultiplier,
           perfect,
-        });
+        };
+        if (sealed) (this.lastBlockedCells ??= []).push(...match.cells);
+        else rows.push(match);
       }
     }
+    this.pendingChainBreak = false;
     return rows;
   }
 }

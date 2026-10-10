@@ -41,6 +41,15 @@ export const PENTOMINO_COLORS = Object.freeze({
 // so the high-order room rules remain readable instead of rainbow-noisy.
 export const HIGH_ORDER_POLYOMINO_COLOR = 0xaeb7c5;
 
+// User-authored and wrapper-owned presentation settings may use either Pixi
+// RGB numbers or picker-friendly "#rrggbb" strings. Render paths normalize at
+// their boundary so simulation and shader code always receive an RGB integer.
+export const colorNumber = (color, fallback = 0xffffff) => {
+  if (Number.isFinite(color)) return color;
+  const parsed = Number.parseInt(String(color ?? "").replace("#", ""), 16);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 export const COLORS = Object.freeze({
   WHITE: 0xffffff,
   BLACK: 0x000000,

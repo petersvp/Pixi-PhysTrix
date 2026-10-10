@@ -467,6 +467,8 @@ export const randomDefinitionForOrder = (order, random = Math.random) => {
 };
 export const resolvePolyominoDefinition = (source) => {
   if (source && typeof source === "object" && source.matrix) return source;
+  if (source && typeof source === "object" && source.id)
+    return KNOWN_DEFINITIONS.find(({ id }) => id === source.id) || GUIDELINE_DEFINITIONS[0];
   return (
     KNOWN_DEFINITIONS.find(({ id }) => id === source) ||
     GUIDELINE_DEFINITIONS[0]

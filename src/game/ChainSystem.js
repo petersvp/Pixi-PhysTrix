@@ -43,9 +43,11 @@ export const chainIndex = (text) => {
 
 /** Find each removable same-colour group without changing polyomino topology. */
 export function findColorChainGroups(board, rules = {}) {
+  const sealed = rules.isSealedCell || (() => false);
   const mode = rules.mode;
   if (mode === "color-lines") {
     const minimum = Math.max(2, Number(rules.colorLineLength) || 2);
+    const effectiveMinimum = Math.max(2, minimum - Math.max(0, Number(rules.chainBreakLineReduction) || 0));
     const directions = [
       ...(rules.horizontal ? [[1, 0]] : []),
       ...(rules.vertical ? [[0, 1]] : []),
@@ -53,13 +55,15 @@ export function findColorChainGroups(board, rules = {}) {
     ];
     const groups = [];
     board.forEachCell((tile, x, y) => {
+      if (sealed(x, y)) return;
       directions.forEach(([dx, dy]) => {
         const previous = board.get(x - dx, y - dy);
-        if (!Number.isInteger(tile.colorIndex) || tile.colorIndex < 0 || previous?.colorIndex === tile.colorIndex) return;
+        if (!Number.isInteger(tile.colorIndex) || tile.colorIndex < 0 ||
+            (!sealed(x - dx, y - dy) && previous?.colorIndex === tile.colorIndex)) return;
         const run = [];
-        for (let px = x, py = y; board.get(px, py)?.colorIndex === tile.colorIndex; px += dx, py += dy)
+        for (let px = x, py = y; !sealed(px, py) && board.get(px, py)?.colorIndex === tile.colorIndex; px += dx, py += dy)
           run.push({ x: px, y: py });
-        if (run.length < minimum) return;
+        if (run.length < effectiveMinimum) return;
         const intercept = dx === 1 && dy === 0
           ? y
           : dx === 0 && dy === 1
@@ -70,7 +74,7 @@ export function findColorChainGroups(board, rules = {}) {
         groups.push({
           id: `color-line:${tile.colorIndex}:${dx},${dy}:${intercept}`,
           cells: run,
-          extraMinoCount: run.length - minimum,
+          extraMinoCount: run.length - effectiveMinimum,
         });
       });
     });
@@ -78,10 +82,11 @@ export function findColorChainGroups(board, rules = {}) {
   }
   if (mode !== "color-clusters") return [];
   const minimum = Math.max(2, Number(rules.clusterSize) || 17);
+  const effectiveMinimum = Math.max(2, minimum - Math.max(0, Number(rules.chainBreakClusterReduction) || 0));
   const visited = new Set();
   const groups = [];
   board.forEachCell((tile, x, y) => {
-    if (!Number.isInteger(tile.colorIndex) || tile.colorIndex < 0) return;
+    if (sealed(x, y) || !Number.isInteger(tile.colorIndex) || tile.colorIndex < 0) return;
     const key = `${x},${y}`;
     if (visited.has(key)) return;
     visited.add(key);
@@ -91,16 +96,16 @@ export function findColorChainGroups(board, rules = {}) {
       [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
         const nx = cell.x + dx, ny = cell.y + dy, nextKey = `${nx},${ny}`;
         const next = board.get(nx, ny);
-        if (!next || next.colorIndex !== tile.colorIndex || visited.has(nextKey)) return;
+        if (sealed(nx, ny) || !next || next.colorIndex !== tile.colorIndex || visited.has(nextKey)) return;
         visited.add(nextKey);
         group.push({ x: nx, y: ny });
       });
     }
-    if (group.length >= minimum)
+    if (group.length >= effectiveMinimum)
       groups.push({
         id: `color-cluster:${tile.colorIndex}:${key}`,
         cells: group,
-        extraMinoCount: group.length - minimum,
+        extraMinoCount: group.length - effectiveMinimum,
       });
   });
   return groups;

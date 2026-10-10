@@ -123,6 +123,39 @@ export class Polyomino {
       this.extraMinos.forEach((mino) => cells.push({ ...mino, x: x + mino.x, y: y + mino.y, color: mino.colorIndex < 0 ? this.color : this.palette?.[mino.colorIndex] }));
     return cells;
   }
+  discardSpawnOutOfBounds(columns) {
+    const width = Math.max(1, Math.floor(Number(columns) || 0));
+    const originalMinos = new Set(this.minos.map((mino) => `${mino.x},${mino.y}`));
+    const removed = new Set(
+      this.minos
+        .filter((mino) => this.x + mino.x < 0 || this.x + mino.x >= width)
+        .map((mino) => `${mino.x},${mino.y}`),
+    );
+    if (!removed.size) return 0;
+    // Clipping removes geometry, not the PM's original topology. The exposed
+    // survivor must still claim its former neighbour and mark that link as
+    // broken, so Grid can render and resolve a torn connection correctly.
+    const sides = [
+      [-1, 0, "left"], [1, 0, "right"], [0, -1, "top"], [0, 1, "bottom"],
+    ];
+    this.minos = this.minos
+      .filter((mino) => !removed.has(`${mino.x},${mino.y}`))
+      .map((mino) => {
+        const broken = { ...(mino.broken || {}) };
+        const visualLinks = { ...(mino.visualLinks || {}) };
+        sides.forEach(([dx, dy, side]) => {
+          const neighbor = `${mino.x + dx},${mino.y + dy}`;
+          visualLinks[side] ??= originalMinos.has(neighbor);
+          if (removed.has(neighbor)) broken[side] = true;
+        });
+        return new Mino({ ...mino, visualLinks, broken });
+      });
+    this.matrix = this.matrix.map((row, y) =>
+      row.map((filled, x) => (removed.has(`${x},${y}`) ? 0 : filled)),
+    );
+    this.extraMinos = this.minos.filter((mino) => !this.matrix[mino.y]?.[mino.x]);
+    return removed.size;
+  }
   visualCenter() {
     return polyominoCentroid(this.cells());
   }
@@ -144,8 +177,50 @@ export class Polyomino {
   static rotateMinos(minos, matrix, cw = true) {
     const height = matrix.length;
     const width = Math.max(...matrix.map((row) => row.length));
+    const rotateBroken = (broken) => {
+      if (!broken) return undefined;
+      return cw
+        ? {
+            top: Boolean(broken.left),
+            right: Boolean(broken.top),
+            bottom: Boolean(broken.right),
+            left: Boolean(broken.bottom),
+          }
+        : {
+            top: Boolean(broken.right),
+            right: Boolean(broken.bottom),
+            bottom: Boolean(broken.left),
+            left: Boolean(broken.top),
+          };
+    };
+    const rotateVisualLinks = (links) => {
+      if (!links) return undefined;
+      return cw
+        ? {
+            top: Boolean(links.left),
+            right: Boolean(links.top),
+            bottom: Boolean(links.right),
+            left: Boolean(links.bottom),
+            topLeft: Boolean(links.bottomLeft),
+            topRight: Boolean(links.topLeft),
+            bottomRight: Boolean(links.topRight),
+            bottomLeft: Boolean(links.bottomRight),
+          }
+        : {
+            top: Boolean(links.right),
+            right: Boolean(links.bottom),
+            bottom: Boolean(links.left),
+            left: Boolean(links.top),
+            topLeft: Boolean(links.topRight),
+            topRight: Boolean(links.bottomRight),
+            bottomRight: Boolean(links.bottomLeft),
+            bottomLeft: Boolean(links.topLeft),
+          };
+    };
     return minos.map((mino) => new Mino({
       ...mino,
+      ...(mino.broken ? { broken: rotateBroken(mino.broken) } : {}),
+      ...(mino.visualLinks ? { visualLinks: rotateVisualLinks(mino.visualLinks) } : {}),
       x: cw ? height - 1 - mino.y : mino.y,
       y: cw ? mino.x : width - 1 - mino.x,
     }));

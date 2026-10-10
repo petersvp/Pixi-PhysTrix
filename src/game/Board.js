@@ -11,8 +11,14 @@ import {
   COLS,
   ROWS,
 } from "../config/gameplayConstants.js";
+
 import { planMinoDrops } from "./MinoDropPlanner.js";
 import { damageTrashMino } from "../config/trashConstants.js";
+
+// A Metal PM's mandatory one-cell post-lock drop needs to read as an impact,
+// not a single-frame position correction. Other board falls keep their
+// existing shared speed.
+const METAL_CRUSH_FALL_CELLS_PER_SECOND = 6;
 
 export class Board {
   constructor(cols = COLS, rows = ROWS) {
@@ -24,6 +30,11 @@ export class Board {
     this.cells = Array.from({ length: this.rows }, () => Array(this.cols).fill(null));
     this.above = new Map();
     this.lastClearedTiles = [];
+    this.lastMaterialDestroyedTiles = [];
+    this.lastSlipperyDestroyedTiles = [];
+    this.pendingMetalCrush = null;
+    this.pendingFillerFall = false;
+    this.lastMetalCrushImpact = null;
     // Discrete clustered-gravity settlement records. Physics mode never
     // reads or writes these; it reports Box2D contacts directly instead.
     this.lastStickyImpacts = [];
@@ -35,7 +46,7 @@ export class Board {
   set(x, y, tile) {
     // `-1` is deliberate: ordinary skin-coloured minos are not part of a
     // colour-chain palette. Never let old callers create an unindexed tile.
-    if (!Number.isInteger(tile?.colorIndex)) tile.colorIndex = -1;
+    if (tile && !Number.isInteger(tile.colorIndex)) tile.colorIndex = -1;
     if (y >= 0) this.cells[y][x] = tile;
     else {
       const row = this.above.get(y) || Array(this.cols).fill(null);
@@ -85,7 +96,7 @@ export class Board {
     return value ? "clustered" : "classic";
   }
   lock(piece) {
-    const cells = piece.cells();
+    const cells = this.applyQueuedMaterialLockBehavior(piece.cells());
     if (cells.length > this.rows * this.cols) {
       console.error("[Board] Refusing oversized locked polyomino.", {
         cells: cells.length,
@@ -124,6 +135,11 @@ export class Board {
           colorIndex: Number.isInteger(cell.colorIndex) ? cell.colorIndex : -1,
           material: cell.material || "default",
           baseColor: cell.baseColor ?? piece.color,
+          godEssenceItemIndex: cell.godEssenceItemIndex,
+          godEssencePolarity: cell.godEssencePolarity,
+          godEssenceForeign: cell.godEssenceForeign,
+          godEssenceItemName: cell.godEssenceItemName,
+          ...(Number.isFinite(cell.renderY) ? { renderY: cell.renderY } : {}),
           pieceId:
             componentCount > 1
               ? `${piece.id}:${componentByPosition.get(`${x},${y}`)}`
@@ -152,18 +168,242 @@ export class Board {
     });
     return componentCount;
   }
+  takeMaterialDestroyedTiles() {
+    const destroyed = this.lastMaterialDestroyedTiles;
+    this.lastMaterialDestroyedTiles = [];
+    return destroyed;
+  }
+  resolveSlipperyBreakGravity(gravity = CLASSIC_STICKY_GRAVITY) {
+    if (!this.lastSlipperyDestroyedTiles.length) return false;
+    const removedEntries = this.lastSlipperyDestroyedTiles.map((tile) => ({
+      tile,
+      x: tile.x,
+      y: tile.y,
+    }));
+    this.lastSlipperyDestroyedTiles = [];
+    const survivors = [];
+    this.forEachCell((tile, x, y) => survivors.push({ tile, x, y }));
+    // reset() correctly rebuilds both board coordinate stores. Preserve only
+    // the material-break report, which ClassicGameplay may still consume for
+    // score, gems and God Essence after this gravity pass.
+    const materialDestroyed = this.lastMaterialDestroyedTiles;
+    this.reset();
+    this.lastMaterialDestroyedTiles = materialDestroyed;
+    if (Board.gravityType(gravity) === "classic")
+      this.applyClassicCellGravity(survivors, removedEntries, true);
+    else this.applyStickyGravity(survivors, true);
+    return true;
+  }
+  applyQueuedMaterialLockBehavior(sourceCells) {
+    const cells = sourceCells.map((cell) => ({ ...cell }));
+    this.lastMaterialDestroyedTiles = [];
 
-  // Disconnected authored components only need this in Clustered gravity.
-  // `animateFall` retains their source row so the renderer shows the fall.
+    // Filler PM minos do not retain their polyomino geometry. Each mino keeps
+    // its own column and falls into the lowest available cell at or below its
+    // lock position. This intentionally fills vertical holes only; Filler
+    // never slides a mino sideways into another column.
+    // Filler is a PM-level conversion. If the PM also contains an attachment
+    // or God Essence mino, every one of its minos still separates and fills
+    // vertically; their own material metadata is retained after placement.
+    const fillerPiece = cells.some((cell) => cell.material === "filler");
+    const fillerCells = fillerPiece
+      ? cells
+      : cells.filter((cell) => cell.material === "filler" && !cell.attachment);
+    const stationary = new Set(
+      cells
+        .filter((cell) => !fillerCells.includes(cell))
+        .filter((cell) => cell.y >= 0 && cell.y < this.rows)
+        .map((cell) => `${cell.x},${cell.y}`),
+    );
+    const reserved = new Set(stationary);
+    const fillersByColumn = new Map();
+    fillerCells
+      .filter((cell) => cell.x >= 0 && cell.x < this.cols && cell.y >= 0 && cell.y < this.rows)
+      .forEach((cell) => {
+        const column = fillersByColumn.get(cell.x) || [];
+        column.push(cell);
+        fillersByColumn.set(cell.x, column);
+      });
+    this.pendingFillerFall = false;
+    fillersByColumn.forEach((fillers, x) => {
+      // Lower source minos claim the lowest slots first. A later mino may
+      // only use a cell at or below its own source row, so nothing rises.
+      fillers.sort((a, b) => b.y - a.y).forEach((cell) => {
+        const sourceY = cell.y;
+        for (let y = this.rows - 1; y >= sourceY; y -= 1) {
+          const key = `${x},${y}`;
+          if (this.get(x, y) || reserved.has(key)) continue;
+          reserved.add(key);
+          cell.y = y;
+          if (y !== sourceY) {
+            cell.renderY = sourceY;
+            this.pendingFillerFall = true;
+          }
+          break;
+        }
+      });
+    });
+
+    // Metal first locks at its ordinary landing position. ClassicGameplay
+    // gives that position one visible beat, then asks this Board to resolve
+    // the simultaneous one-row crush and animate the result downward.
+    const metalCells = cells.filter(
+      (cell) => cell.material === "metal" && !cell.attachment,
+    );
+    // One Metal mino makes the complete locked PM a Metal compound. Gems and
+    // attachments retain their own material/behaviour, but must travel with
+    // the same one-row crush rather than being left behind.
+    const metalSources = new Set(cells.map((cell) => `${cell.x},${cell.y}`));
+    const canAdvanceMetal = metalCells.length > 0 && cells.every((cell) => {
+      const targetX = cell.x;
+      const targetY = cell.y + 1;
+      return targetX >= 0 && targetX < this.cols && targetY >= 0 &&
+        targetY < this.rows;
+    });
+    const metalMoves = canAdvanceMetal
+      ? cells.map((cell) => ({ cell, x: cell.x, y: cell.y + 1 }))
+      : [];
+    this.pendingMetalCrush = metalMoves.length
+      ? {
+          moves: metalMoves.map(({ cell, x, y }) => ({
+            from: { x: cell.x, y: cell.y },
+            to: { x, y },
+          })),
+          sourcePositions: metalSources,
+        }
+      : null;
+
+    // A Metal compound waits for its delayed crush; all of its minos check
+    // below their final positions together. Ordinary PMs shatter Slippery at
+    // their immediate lock positions.
+    if (!metalCells.length) this.shatterSlipperyUnder(cells);
+    return cells;
+  }
+  shatterSlipperyUnder(cells) {
+    const shattered = new Set();
+    cells.forEach((cell) => {
+      const { x, y } = cell;
+      const belowY = y + 1;
+      const key = `${x},${belowY}`;
+      const below = this.get(x, belowY);
+      if (
+        belowY < this.rows &&
+        below?.material === "slippery" &&
+        !shattered.has(key)
+      ) {
+        shattered.add(key);
+        const destroyed = { tile: below, x, y: belowY };
+        this.markTornEdges([destroyed]);
+        // The new mino has just torn through the supporting Slippery mino.
+        // It is not in Board yet, so mark its exposed lower edge directly.
+        cell.broken = { ...cell.broken, bottom: true };
+        this.lastMaterialDestroyedTiles.push({ ...below, x, y: belowY });
+        this.lastSlipperyDestroyedTiles.push({ ...below, x, y: belowY });
+        this.set(x, belowY, null);
+      }
+    });
+  }
+  hasPendingMetalCrush() {
+    return Boolean(this.pendingMetalCrush?.moves?.length);
+  }
+  hasPendingFillerFall() {
+    return this.pendingFillerFall;
+  }
+  takeMetalCrushImpact() {
+    const impact = this.lastMetalCrushImpact;
+    this.lastMetalCrushImpact = null;
+    return impact;
+  }
+  resolvePendingMetalCrush() {
+    const pending = this.pendingMetalCrush;
+    this.pendingMetalCrush = null;
+    this.lastMetalCrushImpact = null;
+    if (!pending?.moves?.length) return false;
+    const targetEntries = pending.moves
+      .filter(({ to }) => !pending.sourcePositions.has(`${to.x},${to.y}`))
+      .map(({ to }) => ({ tile: this.get(to.x, to.y), x: to.x, y: to.y }))
+      .filter(({ tile }) => Boolean(tile));
+    // Reinforced trash owns durability through trashHp, even while Metalize
+    // gives it the metal material/skin. Check it before ordinary Metal so a
+    // Metal PM crush properly damages 3 -> 2 -> 1 trash instead of adding an
+    // unrelated metalLives field that the renderer never reads.
+    const reinforced = targetEntries.filter(({ tile }) =>
+      tile.trash
+        ? Math.max(1, Number(tile.trashHp) || 1) > 1
+        : tile.material === "metal" && Math.max(1, Number(tile.metalLives) || 3) > 1,
+    );
+    if (reinforced.length) {
+      reinforced.forEach(({ tile }) => {
+        if (tile.trash) {
+          damageTrashMino(tile);
+          return;
+        }
+        // Queue-created Metal starts at three HP. Older/ordinary Metal that
+        // has no explicit counter still receives that same first impact.
+        tile.metalLives = Math.max(1, Number(tile.metalLives) || 3) - 1;
+        tile.broken = { top: true, right: true, bottom: true, left: true };
+      });
+      const impact = reinforced[0];
+      this.lastMetalCrushImpact = {
+        position: { x: impact.x + 0.5, y: impact.y + 0.5 },
+        health: impact.tile.trash
+          ? Math.max(1, Number(impact.tile.trashHp) || 1)
+          : Math.max(1, Number(impact.tile.metalLives) || 1),
+      };
+      return false;
+    }
+    // Preserve every moving tile before vacating sources. This permits a
+    // vertical Metal PM to shift as a single body instead of self-blocking.
+    const moving = pending.moves
+      .map(({ from, to }) => ({ tile: this.get(from.x, from.y), from, to }))
+      .filter(({ tile }) => Boolean(tile));
+    if (moving.length !== pending.moves.length) return false;
+    const destroyed = targetEntries;
+    if (destroyed.length) this.markTornEdges(destroyed);
+    destroyed.forEach(({ tile, x, y }) => {
+      this.lastMaterialDestroyedTiles.push({ ...tile, x, y });
+      this.set(x, y, null);
+    });
+    moving.forEach(({ from }) => this.set(from.x, from.y, null));
+    moving.forEach(({ tile, from, to }) => {
+      tile.renderY = from.y;
+      tile.fallSpeed = METAL_CRUSH_FALL_CELLS_PER_SECOND;
+      this.set(to.x, to.y, tile);
+    });
+    this.shatterSlipperyUnder(moving.map(({ to }) => to));
+    const metal = moving.find(({ tile }) => tile.material === "metal")?.tile;
+    const position = moving.reduce(
+      (center, { to }) => ({ x: center.x + to.x, y: center.y + to.y }),
+      { x: 0, y: 0 },
+    );
+    this.lastMetalCrushImpact = {
+      position: { x: position.x / moving.length + 0.5, y: position.y / moving.length + 0.5 },
+      health: Math.max(1, Number(metal?.metalLives) || 3),
+    };
+    return true;
+  }
+
+  // Live Clustered resolution calculates each island's destination once, then
+  // leaves renderY at its source so updateFallAnimation owns every visible
+  // frame of the fall. This is the gameplay entry point; settle() is reserved
+  // for future replay seeking/rewinding.
+  beginClusteredFall() {
+    const survivors = [];
+    this.forEachCell((tile, x, y) => survivors.push({ tile, x, y }));
+    this.reset();
+    this.applyStickyGravity(survivors, true);
+    return survivors.some(({ tile }) => Number.isFinite(tile.renderY));
+  }
   settle(animateFall = false) {
     const survivors = [];
     this.forEachCell((tile, x, y) => survivors.push({ tile, x, y }));
     this.reset();
     this.applyStickyGravity(survivors, animateFall);
   }
-  findFullLines() {
+  findFullLines(allowedMissing = 0) {
+    const minimumOccupied = Math.max(1, this.cols - Math.max(0, Math.floor(Number(allowedMissing) || 0)));
     return this.cells
-      .map((row, y) => (row.every(Boolean) ? y : -1))
+      .map((row, y) => (row.filter(Boolean).length >= minimumOccupied ? y : -1))
       .filter((y) => y >= 0);
   }
   markLines(rows = this.findFullLines()) {
@@ -180,6 +420,62 @@ export class Board {
       if (tile) tile.marked = true;
     });
     return cells;
+  }
+  cellsInRadius(x, y, radius) {
+    const r = Math.max(0, Number(radius) || 0);
+    const r2 = r * r;
+    const cells = [];
+    this.forEachCell((tile, cellX, cellY) => {
+      const dx = cellX - x;
+      const dy = cellY - y;
+      if (dx * dx + dy * dy <= r2) cells.push({ tile, x: cellX, y: cellY });
+    });
+    return cells;
+  }
+  destroyCells(cells, gravity = CLASSIC_STICKY_GRAVITY, { applyGravity = true } = {}) {
+    const targets = cells.filter(({ x, y }) => this.get(x, y));
+    if (!targets.length) return [];
+    if (!applyGravity) {
+      // A bomb may be resolving while an ordinary match is already marked.
+      // Remove only its own targets; those matched cells must remain marked
+      // so the caller can still perform the already-detected line/chain clear.
+      const targetKeys = new Set(targets.map(({ x, y }) => `${x},${y}`));
+      const removedEntries = [];
+      const survivors = [];
+      this.forEachCell((tile, x, y) => {
+        const entry = { tile, x, y };
+        if (targetKeys.has(`${x},${y}`)) removedEntries.push(entry);
+        else survivors.push(entry);
+      });
+      const clearedTiles = removedEntries.map(({ tile, x, y }) => ({ ...tile, x, y }));
+      this.markTornEdges(removedEntries);
+      this.reset();
+      this.lastClearedTiles = clearedTiles;
+      // Bomb removal itself neither compacts columns nor starts clustered
+      // gravity. Existing marked cells deliberately keep their pending state.
+      survivors.forEach(({ tile, x, y }) => {
+        delete tile.renderY;
+        this.set(x, y, tile);
+      });
+      return clearedTiles;
+    }
+    this.markCells(targets);
+    this.resolveMarkedCells(gravity);
+    return this.lastClearedTiles;
+  }
+  disconnectCells(cells, gravity = CLASSIC_STICKY_GRAVITY) {
+    const targets = cells.filter(({ x, y }) => this.get(x, y));
+    const sides = [[0, -1, "top", "bottom"], [1, 0, "right", "left"], [0, 1, "bottom", "top"], [-1, 0, "left", "right"]];
+    targets.forEach(({ tile, x, y }) => sides.forEach(([dx, dy, side, opposite]) => {
+      tile.broken ??= { top: false, right: false, bottom: false, left: false };
+      tile.broken[side] = true;
+      const neighbor = this.get(x + dx, y + dy);
+      if (!neighbor) return;
+      neighbor.broken ??= { top: false, right: false, bottom: false, left: false };
+      neighbor.broken[opposite] = true;
+    }));
+    if (Board.gravityType(gravity) === "clustered") this.beginClusteredFall();
+    return targets;
   }
   spawnMetalDrops(count = 0, random = Math.random, {
     colorMode = false,
@@ -292,10 +588,17 @@ export class Board {
       else survivors.push(entry);
     });
     const clearedTiles = removedEntries.map(({ tile, x, y }) => ({ ...tile, x, y }));
+    // A protected Metal/Trash match can reach this method with every target
+    // unmarked after taking durability damage. There is no board mutation to
+    // resolve in that case. In particular, do not reset before this check:
+    // reset() clears cells and would discard every survivor.
+    if (!clearedTiles.length) {
+      this.lastClearedTiles = [];
+      return 0;
+    }
     this.markTornEdges(removedEntries);
     this.reset();
     this.lastClearedTiles = clearedTiles;
-    if (!clearedTiles.length) return 0;
     if (Board.gravityType(gravity) === "classic")
       this.applyClassicCellGravity(survivors, removedEntries, true);
     else this.applyStickyGravity(survivors, true);
@@ -668,9 +971,15 @@ export class Board {
     let moving = false;
     this.forEachCell((tile, _x, y) => {
       if (!Number.isFinite(tile.renderY)) return;
-      tile.renderY = Math.min(y, tile.renderY + step);
+      const tileStep = Number.isFinite(tile.fallSpeed)
+        ? (tile.fallSpeed * ms) / 1000
+        : step;
+      tile.renderY = Math.min(y, tile.renderY + tileStep);
       if (tile.renderY < y) moving = true;
-      else delete tile.renderY;
+      else {
+        delete tile.renderY;
+        delete tile.fallSpeed;
+      }
     });
     // A solve can create several independently falling groups. Complete each
     // sound when its own visual fall lands; do not wait for other groups whose
@@ -681,6 +990,7 @@ export class Board {
       this.lastStickyImpacts.push(completedImpact);
       return false;
     });
+    if (!moving) this.pendingFillerFall = false;
     return moving;
   }
 }

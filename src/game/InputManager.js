@@ -29,8 +29,23 @@ export class InputManager {
     this.keyup = (e) => {
       this.down.delete(e.code || e.key);
     };
+    // A keyup is not delivered to this window when the browser, an iframe, or
+    // another DOM control takes focus mid-press. Do not leave movement/actions
+    // latched when the game becomes active again. Gamepad state deliberately
+    // remains independent: it is polled by the game rather than tied to DOM
+    // keyboard focus.
+    this.clearKeyboardState = () => {
+      this.down.clear();
+      this.pressed.clear();
+    };
+    this.blur = () => this.clearKeyboardState();
+    this.visibilityChange = () => {
+      if (document.hidden) this.clearKeyboardState();
+    };
     target.addEventListener("keydown", this.keydown);
     target.addEventListener("keyup", this.keyup);
+    target.addEventListener("blur", this.blur);
+    document.addEventListener("visibilitychange", this.visibilityChange);
   }
   held(action) {
     return (
@@ -71,7 +86,10 @@ export class InputManager {
     hold("left", GAMEPAD_BINDS.left);
     hold("right", GAMEPAD_BINDS.right);
     hold("softDrop", GAMEPAD_BINDS.softDrop);
-    if (edge(GAMEPAD_BUTTON.A) || edge(GAMEPAD_BINDS.pause)) this.gamepadPressed.add("start");
+    // Start is pause-only. A remains the confirm/start button, including for
+    // the visible game-over action; combining them made Start both open the
+    // menu and accidentally activate/restart the game underneath it.
+    if (edge(GAMEPAD_BUTTON.A)) this.gamepadPressed.add("start");
     if (GAMEPAD_BINDS.hold.some(edge)) this.gamepadPressed.add("hold");
     this.previous = pad.buttons.map((button) => button.pressed);
   }
@@ -91,5 +109,7 @@ export class InputManager {
   destroy() {
     this.target.removeEventListener("keydown", this.keydown);
     this.target.removeEventListener("keyup", this.keyup);
+    this.target.removeEventListener("blur", this.blur);
+    document.removeEventListener("visibilitychange", this.visibilityChange);
   }
 }

@@ -37,10 +37,20 @@ export class PieceQueue {
     );
     this.bag = [];
     this.items = [];
+    // Priority entries are gameplay-real next pieces, but deliberately stay
+    // outside `items`: the renderer, replay queue snapshots, and opponents'
+    // visible previews must never reveal a God Essence item block early.
+    this.hiddenItems = [];
     // Only queue-disabled games need deferred PM Order mutations: there is no
     // visible future PM to mutate until the next spawn is drawn.
     this.pendingAttachments = 0;
     this.pendingGems = 0;
+    // Material effects operate on whole upcoming PMs. Existing previews are
+    // changed immediately; this FIFO owns the remainder when an effect
+    // reaches beyond the configured preview length (including queue size 0).
+    // God Essence rewards intentionally never enter this queue: they are
+    // separate, hidden priority entries and must remain their special O PM.
+    this.materialQueue = [];
   }
   addAttachments(count = 0) {
     const total = Math.max(0, Math.floor(Number(count) || 0));
@@ -52,17 +62,25 @@ export class PieceQueue {
       if (this.targetSize === 0) this.pendingAttachments += total;
       return this.targetSize === 0 ? total : 0;
     }
+    // Item blocks are complete authored rewards/attacks, not ordinary PMs.
+    // PM Order must never fuse an attachment onto one. If only item blocks
+    // are visible, this attack has no legal target and simply fizzles.
+    const candidates = this.items.filter((item) =>
+      item && !this.isGodEssenceItem(item),
+    );
+    if (!candidates.length) return 0;
     let applied = 0;
     for (let index = 0; index < total; index += 1) {
-      const item = this.items[Math.floor(this.random() * this.items.length)];
+      const item = candidates[Math.floor(this.random() * candidates.length)];
       if (this.attachTo(item)) applied += 1;
     }
     return applied;
   }
   attachTo(item, material = "attachment") {
-    const minos = (item.minos || item.matrix.flatMap((row, y) =>
+    if (!item || this.isGodEssenceItem(item)) return false;
+    const minos = (item.minos || item.matrix?.flatMap((row, y) =>
       row.flatMap((filled, x) => (filled ? [{ x, y }] : [])),
-    )).map((mino) => ({ ...mino }));
+    ) || []).map((mino) => ({ ...mino }));
     if (!minos.length) return false;
     const occupied = new Set(minos.map((mino) => `${mino.x},${mino.y}`));
     const neighbors = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -111,6 +129,80 @@ export class PieceQueue {
   addGems(count = 0) {
     this.pendingGems += Math.max(0, Math.floor(Number(count) || 0));
   }
+  isGodEssenceItem(item) {
+    return Boolean(
+      item?.godEssenceReward ||
+      Number.isInteger(item?.godEssenceItemIndex),
+    );
+  }
+  materializeMinos(item) {
+    if (!item) return [];
+    if (Array.isArray(item.minos) && item.minos.length)
+      return item.minos.map((mino) => ({ ...mino }));
+    return (item.matrix || []).flatMap((row, y) =>
+      row.flatMap((filled, x) => (filled ? [{ x, y, material: "default" }] : [])),
+    );
+  }
+  applyMaterial(item, material) {
+    if (!item || this.isGodEssenceItem(item)) return false;
+    const minos = this.materializeMinos(item);
+    if (!minos.length) return false;
+    // PM Order attachments and God Essence crystals are deliberately
+    // excluded. They retain their own gameplay material while only ordinary
+    // PM minos receive the elemental queue effect.
+    const isDefaultMino = (mino) =>
+      !mino.attachment && mino.material !== "attachment" &&
+      !mino.gem && mino.material !== "gem" &&
+      (!mino.material || mino.material === "default");
+    // A PM already converted by Filler/Metal/etc. is not a new target for a
+    // later queue-material effect. Leave it alone and carry that assignment
+    // forward to the next ordinary PM instead.
+    if (!minos.some(isDefaultMino)) return false;
+    item.minos = minos.map((mino) =>
+      isDefaultMino(mino)
+        ? {
+            ...mino,
+            material,
+            ...(material === "metal" ? { metalLives: mino.metalLives ?? 3 } : {}),
+          }
+        : mino,
+    );
+    return true;
+  }
+  setUpcomingMaterial(material, count = 0) {
+    const total = Math.max(0, Math.floor(Number(count) || 0));
+    if (!total || !material) return 0;
+    let remaining = total;
+    // Mutate all normal previews in first-to-spawn order. Foreign God Essence
+    // items may be visibly queued, but are authored attacks and are never
+    // converted into a material PM.
+    for (const item of this.items) {
+      if (!remaining) break;
+      if (!this.applyMaterial(item, material)) continue;
+      remaining -= 1;
+    }
+    // Preview slots cannot represent the rest. Preserve it for the next
+    // generated normal PMs; draw() consumes this FIFO one PM at a time.
+    while (remaining-- > 0) this.materialQueue.push(material);
+    return total;
+  }
+  enqueueHidden(item) {
+    if (!item) return false;
+    this.hiddenItems.push(item);
+    return true;
+  }
+  enqueueVisible(item) {
+    if (!item) return false;
+    // Fill the normal preview first, then append after it. This makes an
+    // incoming foreign item visible and preserves every already-authored
+    // queue entry ahead of it.
+    if (this.targetSize) this.fill();
+    this.items.push(item);
+    return true;
+  }
+  hasHiddenItems() {
+    return this.hiddenItems.length > 0;
+  }
   applyPendingGems(item) {
     if (!this.pendingGems) return 0;
     // Each new queue entry takes a proportional share of the balance. A
@@ -134,6 +226,7 @@ export class PieceQueue {
     return gems;
   }
   next() {
+    if (this.hiddenItems.length) return this.hiddenItems.shift();
     if (!this.targetSize) return this.items.shift() || this.draw();
     this.fill();
     const next = this.items.shift();
@@ -143,6 +236,7 @@ export class PieceQueue {
   // Inspect the next queued type without consuming it. Physics release uses
   // this to wait for a safe spawn position while the pile keeps simulating.
   peek() {
+    if (this.hiddenItems.length) return this.hiddenItems[0];
     if (!this.targetSize) {
       if (!this.items.length) this.items.push(this.draw());
       return this.items[0];
@@ -220,8 +314,15 @@ export class PieceQueue {
         this.attachTo(item);
         this.pendingAttachments -= 1;
       }
-      return item;
     }
-    return usesColorChain ? item : definition;
+    // A material assignment is consumed only for a newly generated ordinary
+    // PM. Hidden God Essence entries are returned by next()/peek() before
+    // draw() and therefore never consume or inherit queue materials.
+    const material = this.materialQueue.shift();
+    if (material) this.applyMaterial(item, material);
+    // Always return the authored item form. In non-colour modes it preserves
+    // mino material metadata for queue previews, physics fixtures and board
+    // locks instead of falling back to the bare bag definition.
+    return item;
   }
 }

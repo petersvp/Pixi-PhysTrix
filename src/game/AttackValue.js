@@ -51,7 +51,9 @@ export const ATTACK_VALUE_RULES = Object.freeze({
 export function pmOrderAttackValue(lines, spin, pvp = {}, combo = 0, backToBack = false) {
   if (pvp.pmOrderAttack === false) return 0;
   const bounty = pvp.bounty === false ? 1 : Number(pvp.bountyMultiplier) || 1;
-  const setting = Number(pvp.pmOrderMultiplier) || 1;
+  // PM Order attaches two minos per earned attack point by default. The room
+  // setting remains an explicit strength multiplier for custom matches.
+  const setting = Number(pvp.pmOrderMultiplier) || 2;
   return attackValue({
     lines,
     miniTSpin: spin === "T-SPIN MINI" && lines === 1,

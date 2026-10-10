@@ -7,7 +7,7 @@
  */
 
 import { CELL, COLS, ROWS } from "../config/gameplayConstants.js";
-import { COLORS } from "../config/colors.js";
+import { colorNumber, COLORS } from "../config/colors.js";
 import {
   PLAYFIELD_FRAME_EXTENSION,
   PLAYFIELD_FRAME_Y_OFFSET,
@@ -39,6 +39,47 @@ const lightenColor = (color, amount) => {
 };
 
 const MAX_GLOW_CURVE_SEGMENTS = 64;
+
+const blindSeed = (value) => {
+  let hash = 2166136261;
+  for (const char of String(value || "blind")) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
+// Blind hides locked PMs, then gives each one a short, independently-offset
+// glimpse once per ten-second cycle. The low peak keeps the information useful
+// without restoring a readable board.
+const blindAlpha = (seed, timeMs) => {
+  const phase = (Math.max(0, timeMs) + blindSeed(seed) % 1000) % 5000;
+  if (phase >= 360) return 0;
+  return Math.sin((phase / 360) * Math.PI) * 0.25;
+};
+
+const mixColor = (from, to, amount) => {
+  const mix = (shift) => Math.round(
+    ((from >> shift) & 0xff) + (((to >> shift) & 0xff) - ((from >> shift) & 0xff)) * amount,
+  );
+  return (mix(16) << 16) | (mix(8) << 8) | mix(0);
+};
+
+const setBlindAlpha = (node, alpha, active) => {
+  let filter = node.blindAlphaFilter;
+  if (active && !filter) {
+    filter = new PIXI.AlphaFilter({ alpha });
+    node.blindAlphaFilter = filter;
+    node.filters = [...(node.filters || []), filter];
+  }
+  if (filter) filter.alpha = alpha;
+  if (!active && filter) {
+    node.filters = (node.filters || []).filter((entry) => entry !== filter);
+    filter.destroy();
+    delete node.blindAlphaFilter;
+  }
+  node.alpha = 1;
+};
 
 export class BoardRenderer {
   constructor(
@@ -110,10 +151,89 @@ export class BoardRenderer {
     this.lastActiveSignature = null;
   }
 
+  setGodEssencePresentation({ blind = false, blindBlend = 0, desaturated = false, desaturationAmount = 0, neutralMinoColor = "#777777", timeMs = 0 } = {}) {
+    const nextDesaturationAmount = Math.max(0, Math.min(1, Number(desaturationAmount) || 0));
+    if (this.desaturated !== Boolean(desaturated) || this.desaturationAmount !== nextDesaturationAmount) {
+      this.desaturated = Boolean(desaturated);
+      this.desaturationAmount = nextDesaturationAmount;
+      this.neutralMinoColor = colorNumber(neutralMinoColor, 0x777777);
+      this.lastBoardSignature = null;
+      this.lastActiveSignature = null;
+    }
+    this.blindPresentation = Boolean(blind);
+    this.blindBlend = Math.max(0, Math.min(1, Number(blindBlend) || 0));
+    this.presentationTimeMs = timeMs;
+    this.applyBlindPresentation();
+  }
+
+  applyBlindPresentation() {
+    const alphaFor = (node) => {
+      const pulse = blindAlpha(node.blindSeed ?? node.label, this.presentationTimeMs);
+      return 1 + (pulse - 1) * this.blindBlend;
+    };
+    // Locked board groups and their item overlays are direct children. The
+    // controlled PM/ghost remain readable; Blind is deliberately only about
+    // settled information.
+    const active = this.blindPresentation || this.blindBlend > 0;
+    this.settledLayer.children.forEach((node) => setBlindAlpha(node, alphaFor(node), active));
+    this.markedLayer.children.forEach((node) => setBlindAlpha(node, alphaFor(node), active));
+  }
+
+  setGodEssenceAtlas(texture, atlas) {
+    this.godEssenceTexture = texture;
+    this.godEssenceAtlas = atlas;
+    this.lastBoardSignature = null;
+    this.lastActiveSignature = null;
+  }
+
+  addGodEssenceOverlay(target, cells, itemIndex, polarity, foreign = false, showItemName = false) {
+    if (!this.godEssenceTexture || !Number.isInteger(itemIndex) || !cells.length) return;
+    const atlas = this.godEssenceAtlas;
+    const cell = atlas.itemCells?.[itemIndex];
+    const column = Number.isInteger(cell?.column) ? cell.column - 1 : itemIndex % atlas.columns;
+    const row = Number.isInteger(cell?.row) ? cell.row - 1 : Math.floor(itemIndex / atlas.columns);
+    const texture = new PIXI.Texture({
+      source: this.godEssenceTexture.source,
+      frame: new PIXI.Rectangle(column * atlas.cellSize, row * atlas.cellSize, atlas.cellSize, atlas.cellSize),
+    });
+    const minX = Math.min(...cells.map((cell) => cell.x));
+    const maxX = Math.max(...cells.map((cell) => cell.x));
+    const minY = Math.min(...cells.map((cell) => cell.renderY ?? cell.y));
+    const maxY = Math.max(...cells.map((cell) => cell.renderY ?? cell.y));
+    const icon = new PIXI.Sprite(texture);
+    icon.label = "godEssenceItemIcon";
+    const tintIcons = this.palette?.length > 0;
+    icon.anchor.set(0.5);
+    icon.position.set((minX + maxX + 1) * CELL / 2, (minY + maxY + 1) * CELL / 2);
+    icon.width = (maxX - minX + 1) * CELL * 0.86;
+    icon.height = (maxY - minY + 1) * CELL * 0.86;
+    // Lines Out keeps atlas art neutral: only the actual minos communicate
+    // allegiance. Colour modes tint the icon as well.
+    const tints = atlas.tints || {};
+    icon.blendMode = tintIcons
+      ? atlas.colorModeItemIconBlendMode ?? atlas.itemIconBlendMode ?? "normal"
+      : atlas.itemIconBlendMode ?? "normal";
+    icon.tint = foreign || polarity === "foreign" ? colorNumber(tints.foreignIcon, 0xffffff)
+      : !tintIcons ? 0xffffff
+      : polarity === "others" ? colorNumber(tints.colorModeOthersIcon ?? tints.othersIcon, 0xffd9df) : colorNumber(tints.colorModeSelfIcon ?? tints.selfIcon, 0xd9ffe6);
+    target.addChild(icon);
+    if (showItemName && cells[0]?.godEssenceItemName) {
+      const label = new PIXI.Text({
+        text: String(cells[0].godEssenceItemName).toUpperCase(),
+        style: { fontFamily: "Quantico", fontSize: 12, fontWeight: "bold", fill: icon.tint, stroke: { color: 0x08111f, width: 3 } },
+      });
+      label.anchor.set(0.5, 1);
+      label.position.set(icon.x, minY * CELL - 3);
+      target.addChild(label);
+    }
+    return icon;
+  }
+
   colorFor(cell, fallback) {
     const color = Number.isInteger(cell.colorIndex) && cell.colorIndex >= 0
       ? this.palette[cell.colorIndex] ?? fallback
       : cell.baseColor ?? fallback;
+    if (this.desaturationAmount) return mixColor(color, this.neutralMinoColor ?? 0x777777, this.desaturationAmount);
     if (cell.trash && cell.material === "trash" && cell.trashHp === 1)
       return normalTrashTint(color, this.trashAppearance.desaturation);
     if (cell.material !== "metal") return color;
@@ -265,7 +385,7 @@ export class BoardRenderer {
 
   // Rebuild the full board visual each frame: background grid, outer border, and
   // all active/fixed tiles. This keeps the render layer stateful but deterministic.
-  draw(board, piece, ghost, activeAsGhost = false) {
+  draw(board, piece, ghost, activeAsGhost = false, feedback = null) {
     // GameManager ticks at display rate, but the logical board normally does
     // not change at display rate. Avoid rebuilding every Graphics path, mesh,
     // and shader unless the board, active piece, or ghost actually changed.
@@ -275,6 +395,7 @@ export class BoardRenderer {
         x,
         y,
         tile.colorIndex,
+        tile.baseColor,
         tile.material,
         tile.metalLives,
         tile.trashHp,
@@ -283,16 +404,52 @@ export class BoardRenderer {
         tile.marked,
         tile.broken,
         tile.renderY,
+        tile.godEssenceItemIndex,
+        tile.godEssencePolarity,
+        tile.godEssenceForeign,
         tile.visualLinks,
       ]),
     );
     const boardSignature = JSON.stringify(signatureParts);
+    // A uniform O / fully symmetric higher-order PM has no visual change from
+    // an in-place turn, so it may keep the old fast path. Once minos differ
+    // (gem, attachment, material, or per-mino colour), their local positions
+    // are visual state: rotating must redraw immediately even if geometry is
+    // symmetric, otherwise the special mino appears to move only on descent.
+    const activeMinoKinds = piece
+      ? new Set(piece.minos.map((mino) => JSON.stringify([
+        mino.material || "default",
+        mino.colorIndex,
+        mino.baseColor ?? null,
+        Boolean(mino.gem),
+        Boolean(mino.attachment),
+      ])))
+      : null;
+    const activeHasMixedMinos = (activeMinoKinds?.size || 0) > 1;
     const activeSignature = JSON.stringify({
       piece: piece
-        ? [piece.type, piece.x, piece.y, piece.rotation, piece.minos.map((mino) => [mino.colorIndex, mino.material])]
+        ? [
+            piece.type,
+            piece.x,
+            piece.y,
+            piece.rotation,
+            piece.color,
+            piece.godEssenceItemIndex,
+            piece.godEssencePolarity,
+            piece.godEssenceForeign,
+            piece.minos.map((mino) => [
+              ...(activeHasMixedMinos ? [mino.x, mino.y] : []),
+              mino.colorIndex,
+              mino.baseColor,
+              mino.material,
+              Boolean(mino.gem),
+              Boolean(mino.attachment),
+            ]),
+          ]
         : null,
       ghost: ghost.map((cell) => [cell.x, cell.y, cell.colorIndex]),
       activeAsGhost,
+      feedback: feedback && [feedback.itemIndex, Math.round(feedback.remainingMs)],
     });
     const clearLayer = (layer) =>
       layer
@@ -345,6 +502,7 @@ export class BoardRenderer {
         alpha,
       );
       target.addChild(layer);
+      return layer;
     };
     // Ghost pieces are rendered as outlines only so they indicate the landing spot
     // without competing with the actual placed color blocks.
@@ -379,6 +537,7 @@ export class BoardRenderer {
         const groupKey = `${tile.pieceId}:${tile.material || "default"}`;
         const group = groups.get(groupKey) || {
           color: this.colorFor(tile, tile.baseColor),
+          blindSeed: tile.pieceId,
           cells: [],
         };
         group.cells.push({
@@ -392,20 +551,31 @@ export class BoardRenderer {
           marked: tile.marked,
           trash: tile.trash,
           material: tile.material || "default",
+          godEssenceItemIndex: tile.godEssenceItemIndex,
+          godEssencePolarity: tile.godEssencePolarity,
         });
         groups.set(groupKey, group);
       });
       // Draw settled board tiles first so the active piece can be layered above them.
-      groups.forEach((group) =>
-        drawConnected(
+      groups.forEach((group, groupKey) => {
+        const layer = drawConnected(
           this.settledLayer,
           group.cells,
           group.color,
           1,
           group.cells[0]?.trash,
           group.cells[0]?.material,
-        ),
-      );
+        );
+        layer.blindSeed = group.blindSeed;
+        const icon = this.addGodEssenceOverlay(
+          this.settledLayer,
+          group.cells,
+          group.cells[0]?.godEssenceItemIndex,
+          group.cells[0]?.godEssencePolarity,
+          group.cells[0]?.godEssenceForeign,
+        );
+        if (icon) icon.blindSeed = group.blindSeed;
+      });
       // Marked classic rows use the same light, outline-only clear treatment as
       // physics minos. The material remains visible under the temporary glow.
       const markedGroups = new Map();
@@ -447,6 +617,7 @@ export class BoardRenderer {
         this.markedLayer.addChild(layer);
       });
     }
+    this.applyBlindPresentation();
     if (activeSignature === this.lastActiveSignature) return;
     this.lastActiveSignature = activeSignature;
     clearLayer(this.ghostLayer);
@@ -479,16 +650,50 @@ export class BoardRenderer {
         topRight: activeOccupied.has(`${cell.x + 1},${cell.y - 1}`),
         bottomRight: activeOccupied.has(`${cell.x + 1},${cell.y + 1}`),
         bottomLeft: activeOccupied.has(`${cell.x - 1},${cell.y + 1}`),
+        ...cell.visualLinks,
       },
     }));
     const activeGroups = new Map();
     linkedActiveCells.forEach((cell) => {
       const material = cell.material || "default";
-      const group = activeGroups.get(material) || [];
-      group.push(cell);
-      activeGroups.set(material, group);
+      // The active renderer used one `piece.color` for every mino. That made
+      // an item O fall as its ordinary yellow definition in colour modes even
+      // though its minos had already been assigned one valid palette index.
+      const color = this.colorFor(cell, piece.color);
+      const key = `${material}:${color}`;
+      const group = activeGroups.get(key) || { material, color, cells: [] };
+      group.cells.push(cell);
+      activeGroups.set(key, group);
     });
-    activeGroups.forEach((cells, material) =>
-      drawConnected(this.activeLayer, cells, piece.color, 1, false, material));
+    activeGroups.forEach(({ cells, material, color }) =>
+      drawConnected(this.activeLayer, cells, color, 1, false, material));
+    this.addGodEssenceOverlay(
+      this.activeLayer,
+      linkedActiveCells,
+      piece.godEssenceItemIndex,
+      piece.godEssencePolarity,
+      Boolean(piece.godEssenceForeign),
+      true,
+    );
+    if (feedback?.remainingMs > 0) {
+      const icon = this.addGodEssenceOverlay(
+        this.activeLayer,
+        linkedActiveCells,
+        feedback.itemIndex,
+        "others",
+        false,
+        false,
+      );
+      if (icon) {
+        const progress = 1 - feedback.remainingMs / 300;
+        // This is an input-error glyph, not an item block overlay: retain a
+        // fixed atlas-sized icon instead of scaling it to the PM's footprint.
+        icon.width = this.godEssenceAtlas.cellSize;
+        icon.height = this.godEssenceAtlas.cellSize;
+        icon.tint = 0xff3c4f;
+        icon.blendMode = "normal";
+        icon.alpha = Math.sin(Math.max(0, Math.min(1, progress)) * Math.PI);
+      }
+    }
   }
 }

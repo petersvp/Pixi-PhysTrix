@@ -11,7 +11,6 @@ import {
   randomDefinitionForOrder,
   SPECIAL_POLYOMINO_DEFINITIONS,
 } from "../game/PolyominoDefinitions.js";
-import { COLS } from "./gameplayConstants.js";
 
 const MAX_BAG_ENTRIES = 64;
 const MAX_BAG_SET_SHAPES = 128;
@@ -36,15 +35,6 @@ const boundedBagInteger = (value, fallback, maximum, label) => {
 
 const definitionFromRows = (shape, index) => {
   const rows = Array.isArray(shape?.rows) ? shape.rows.map(String) : ["1"];
-  if (rows.length > COLS || rows.some((row) => row.length > COLS)) {
-    console.warn("[Bag] Refused custom polyomino larger than the board width.", {
-      index,
-      width: Math.max(...rows.map((row) => row.length)),
-      height: rows.length,
-      boardWidth: COLS,
-    });
-    return null;
-  }
   const matrix = rows.map((row) => [...row].map((cell) => Number(cell !== "0")));
   const order = matrix.flat().filter(Boolean).length || 1;
   return {

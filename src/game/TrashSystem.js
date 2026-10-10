@@ -148,6 +148,12 @@ export class TrashSystem {
     this.bottomRow = cells.length
       ? Math.max(...cells.map((cell) => cell.y))
       : null;
+    // This objective follows the trash minos that originally made up the
+    // lowest generated row. They may later move because of a collapse, so a
+    // coordinate-only row check is not sufficient.
+    cells.forEach((cell) => {
+      cell.bottomTrashTarget = Boolean(cell.trash && cell.y === this.bottomRow);
+    });
     return cells;
   }
 
@@ -290,18 +296,33 @@ export class TrashSystem {
   }
 
   populateBoard(board) {
-    this.cells().forEach(({ x, y, colorIndex, baseColor, material, trashHp, broken, trash, normalTrash, visualLinks }) =>
-      board.set(x, y, {
-        colorIndex,
-        material: material || "trash",
-        trashHp: Math.max(1, Math.floor(Number(trashHp) || 1)),
-        baseColor,
-        trash: Boolean(trash),
-        normalTrash: Boolean(normalTrash),
-        pieceId: trash ? `trash-${x}-${y}-${this.level}` : `pattern-normal-${this.level}`,
-        visualLinks: visualLinks || emptyLinks(),
-        broken: broken || { top: false, right: false, bottom: false, left: false },
-      }),
+    this.cells().forEach(({ x, y, colorIndex, baseColor, material, trashHp, broken, trash, bottomTrashTarget, normalTrash, visualLinks }) =>
+      {
+        // Item-created trash can replace a Grid tile.  Sever every adjacent
+        // PM edge first so its survivor does not retain a false visual/logic
+        // connection to the overwritten mino.
+        if (board.get(x, y)) {
+          [[0, -1, "bottom"], [1, 0, "left"], [0, 1, "top"], [-1, 0, "right"]]
+            .forEach(([dx, dy, opposite]) => {
+              const neighbor = board.get(x + dx, y + dy);
+              if (!neighbor) return;
+              neighbor.broken ??= { top: false, right: false, bottom: false, left: false };
+              neighbor.broken[opposite] = true;
+            });
+        }
+        board.set(x, y, {
+          colorIndex,
+          material: material || "trash",
+          trashHp: Math.max(1, Math.floor(Number(trashHp) || 1)),
+          baseColor,
+          trash: Boolean(trash),
+          bottomTrashTarget: Boolean(bottomTrashTarget),
+          normalTrash: Boolean(normalTrash),
+          pieceId: trash ? `trash-${x}-${y}-${this.level}` : `pattern-normal-${this.level}`,
+          visualLinks: visualLinks || emptyLinks(),
+          broken: broken || { top: false, right: false, bottom: false, left: false },
+        });
+      },
     );
   }
 
@@ -313,8 +334,10 @@ export class TrashSystem {
 
   bottomLineCleared(board, physics = null) {
     if (!Number.isInteger(this.bottomRow)) return false;
-    if (physics) return !physics.hasTrashOnRow(this.bottomRow);
-    return !board.cells[this.bottomRow]?.some((tile) => tile?.trash);
+    if (physics) return !physics.hasBottomTrashTarget();
+    let targetRemains = false;
+    board.forEachCell((tile) => { if (tile?.bottomTrashTarget) targetRemains = true; });
+    return !targetRemains;
   }
 
   advance() {

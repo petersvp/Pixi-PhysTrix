@@ -42,6 +42,19 @@ export class AppShell {
     this.app.canvas.style.inset = "0";
     this.app.canvas.style.width = "100vw";
     this.app.canvas.style.height = "100vh";
+    // Canvas elements are not keyboard-focusable by default. Giving the
+    // persistent game surface a tab stop means a pointer/touch interaction
+    // returns keyboard delivery to this frame after browser/iframe focus moved
+    // elsewhere. The visible keyboard UI remains Pixi-owned, so hide the DOM
+    // focus outline.
+    this.app.canvas.tabIndex = 0;
+    this.app.canvas.style.outline = "none";
+    this.focusCanvas = () => {
+      this.app.canvas.focus({ preventScroll: true });
+    };
+    this.app.canvas.addEventListener("pointerdown", this.focusCanvas, {
+      capture: true,
+    });
     this.root.replaceChildren(this.app.canvas);
     this.resize = () => {
       this.app.renderer.resize(innerWidth, innerHeight);

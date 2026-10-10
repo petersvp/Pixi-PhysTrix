@@ -221,9 +221,9 @@
         null,
         null,
         null,
-        1
+        0.830078125
       ],
-      "mode": "linear"
+      "mode": "smooth"
     },
     "finalAlphaCurve": {
       "resolution": 2,

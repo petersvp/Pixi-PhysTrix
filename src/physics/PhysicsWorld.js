@@ -40,6 +40,25 @@ const PHYSICS_MATERIAL_PRESETS = Object.freeze({
   rubber: { density: PHYSICS_MASS, friction: 0.45, restitution: 0.88 },
 });
 
+// Queue-material items annotate individual minos, whereas room material
+// presets annotate the whole generated PM. Resolve the former here at the
+// fixture boundary so mixed PMs (for example an attachment on a Metal PM)
+// retain each cell's own collision properties.
+const materialForMino = (base, minoMaterial) => {
+  switch (minoMaterial) {
+    case "slippery":
+      return { ...base, friction: 0.01 };
+    case "metal":
+      // God Essence Metal has an authored, absolute fixture density. It is
+      // intentionally independent from the room's base material density.
+      return { ...base, density: 50 };
+    case "bounce":
+      return { ...base, friction: 0.01, restitution: 1 };
+    default:
+      return base;
+  }
+};
+
 
 /** Owns the Box2D world and every locked compound body in physics gameplay. */
 export class PhysicsWorld {
@@ -300,7 +319,7 @@ export class PhysicsWorld {
     const cells = piece.cells();
     const origin = polyominoCentroid(cells);
     const signature = cells
-      .map((cell) => `${cell.x - origin.x}:${cell.y - origin.y}`)
+      .map((cell) => `${cell.x - origin.x}:${cell.y - origin.y}:${cell.material || "default"}`)
       .sort()
       .join("|");
     const rebuild = forceFixtures || signature !== this.controlSignature;
@@ -318,6 +337,7 @@ export class PhysicsWorld {
         fixture = next;
       }
       cells.forEach((cell) => {
+        const material = materialForMino(this.controlMaterial, cell.material);
         const shape = new Shapes.b2PolygonShape();
         shape.SetAsOrientedBox(
           0.5,
@@ -327,8 +347,8 @@ export class PhysicsWorld {
         );
         const fixture = new Dynamics.b2FixtureDef();
         fixture.shape = shape;
-        fixture.friction = this.controlMaterial.friction;
-        fixture.restitution = this.controlMaterial.restitution;
+        fixture.friction = material.friction;
+        fixture.restitution = material.restitution;
         this.controlBody.CreateFixture(fixture);
       });
       // A discrete rotation changes the compound shape immediately.
@@ -365,10 +385,11 @@ export class PhysicsWorld {
     def.type = Dynamics.b2Body.b2_dynamicBody;
     def.position.Set(origin.x, origin.y);
     const body = this.world.CreateBody(def),
+      baseMaterial = this.materials[piece.definition.materialIndex] || this.material,
       data = {
         polyominoId: this.nextLockedPolyominoId++,
         color: piece.color,
-        material: this.materials[piece.definition.materialIndex] || this.material,
+        material: baseMaterial,
         cells: cells.map(({ color: _color, ...cell }) => ({
           ...cell,
           baseColor: cell.baseColor ?? piece.color,
@@ -415,9 +436,10 @@ export class PhysicsWorld {
       );
       const f = new Dynamics.b2FixtureDef();
       f.shape = s;
-      f.density = data.material.density;
-      f.friction = data.material.friction;
-      f.restitution = data.material.restitution;
+      const material = materialForMino(data.material, cell.material);
+      f.density = material.density;
+      f.friction = material.friction;
+      f.restitution = material.restitution;
       body.CreateFixture(f).SetUserData(cell);
     });
     data.temporaryMassActive = false;
@@ -448,6 +470,7 @@ export class PhysicsWorld {
       colorIndex = -1,
       baseColor,
       trash,
+      bottomTrashTarget = false,
       material = "trash",
       trashHp = 1,
       broken,
@@ -459,6 +482,7 @@ export class PhysicsWorld {
       colorIndex,
       baseColor,
       trash: Boolean(trash),
+      bottomTrashTarget: Boolean(bottomTrashTarget),
       normalTrash: Boolean(normalTrash),
       material,
       trashHp: globalThis.Math.max(1, globalThis.Math.floor(Number(trashHp) || 1)),
@@ -601,14 +625,25 @@ export class PhysicsWorld {
     });
   }
   hasTrash() {
-    return this.bodies.some((body) => body.GetUserData()?.trash);
+    // Fracturing a body recreates it from its surviving cells.  The fragment
+    // metadata deliberately does not carry a stale body-level `trash` flag,
+    // so the cells are the authoritative answer here.
+    return this.bodies.some((body) =>
+      body.GetUserData?.()?.cells?.some((cell) => cell.trash),
+    );
   }
   hasTrashOnRow(row) {
     if (!Number.isInteger(row)) return false;
     return this.bodies.some((body) => {
-      if (!body.GetUserData()?.trash) return false;
+      const data = body.GetUserData?.();
+      if (!data?.cells?.some((cell) => cell.trash)) return false;
       return Math.round(body.GetPosition().y - 0.5) === row;
     });
+  }
+  hasBottomTrashTarget() {
+    return this.bodies.some((body) =>
+      body.GetUserData?.()?.cells?.some((cell) => cell.bottomTrashTarget),
+    );
   }
   clearLockedBodies() {
     this.bodies.forEach((body) => {
@@ -623,13 +658,109 @@ export class PhysicsWorld {
   scan(now) {
     const rows = this.scanner.scan();
     if (rows === null) return { scanned: false, rows: [], marks: [] };
-    return { scanned: true, rows, marks: this.vanish.mark(rows, now) };
+    return {
+      scanned: true,
+      rows,
+      marks: this.vanish.mark(rows, now),
+      blockedCells: this.scanner.lastBlockedCells || [],
+    };
+  }
+  armChainBreak() { this.scanner.armChainBreak(); }
+  setCatalystActive(active) { this.scanner.setCatalystActive(active); }
+  setChainsEnabled(enabled) {
+    this.scanner.setChainsEnabled(enabled);
+    if (enabled || !this.vanish.pending()) return;
+    // No Chains also cancels a previously marked-but-not-yet-vanished scan.
+    // Otherwise the queued vanish would still remove it during the effect.
+    this.bodies.forEach((body) =>
+      body.GetUserData?.()?.cells?.forEach((tile) => { delete tile.marked; }));
+    this.vanish.reset();
+  }
+  setLineSeals(seals) { this.scanner.setLineSeals(seals); }
+  forEachLockedTile(callback) {
+    this.bodies.forEach((body) =>
+      body.GetUserData?.()?.cells?.forEach((tile) => callback(tile, body)));
+  }
+  entriesForTiles(tiles) {
+    const selected = new Set(tiles || []);
+    if (!selected.size) return [];
+    const { Common: { Math: Box2DMath } } = this.api;
+    const entries = [];
+    this.bodies.forEach((body) => {
+      const data = body.GetUserData?.();
+      data?.cells?.forEach((tile) => {
+        if (!selected.has(tile)) return;
+        const center = body.GetWorldPoint(new Box2DMath.b2Vec2(
+          tile.x - data.origin.x + 0.5,
+          tile.y - data.origin.y + 0.5,
+        ));
+        entries.push({ body, tile, x: center.x - 0.5, y: center.y - 0.5 });
+      });
+    });
+    return entries;
+  }
+  applyEarthquake(random = Math.random, strength = 1) {
+    const { Dynamics, Common: { Math: Box2DMath } } = this.api;
+    // Earthquake must visibly dislodge settled locked PMs. The original
+    // impulse was too small to overcome the practical contact/friction load.
+    const magnitude = (2 + Math.max(0, Number(strength) || 0) * 1.5) * 5;
+    const candidates = this.bodies.filter((body) =>
+      body.GetType() === Dynamics.b2Body.b2_dynamicBody,
+    );
+    // Choose exactly half of the movable locked PMs, rather than independently
+    // rolling each one and occasionally shaking nearly the whole board.
+    for (let index = candidates.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(random() * (index + 1));
+      [candidates[index], candidates[swap]] = [candidates[swap], candidates[index]];
+    }
+    const affectedBodies = candidates.slice(0, Math.ceil(candidates.length / 2));
+    let affected = 0;
+    affectedBodies.forEach((body) => {
+      const angle = random() * Math.PI * 2;
+      // An earthquake should shear the pile sideways; a small vertical
+      // component keeps it from looking mechanically uniform.
+      const horizontal = Math.cos(angle);
+      const vertical = Math.sin(angle) * 0.2;
+      body.ApplyImpulse(
+        new Box2DMath.b2Vec2(horizontal * magnitude, vertical * magnitude),
+        body.GetWorldCenter(),
+      );
+      affected += 1;
+    });
+    return affected;
+  }
+  applyPulse(x, y, radius) {
+    const { Dynamics, Common: { Math: Box2DMath } } = this.api;
+    const reach = Math.max(0.01, Number(radius) || 0.01);
+    const baseForce = 500;
+    let affected = 0;
+    this.bodies.forEach((body) => {
+      if (body.GetType() !== Dynamics.b2Body.b2_dynamicBody) return;
+      const center = body.GetWorldCenter();
+      const dx = center.x - x;
+      const dy = center.y - y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > reach) return;
+      const falloff = 1 - distance / reach;
+      const angle = distance > 0.001 ? Math.atan2(dy, dx) : 0;
+      body.ApplyImpulse(
+        new Box2DMath.b2Vec2(Math.cos(angle) * baseForce * falloff, Math.sin(angle) * baseForce * falloff),
+        center,
+      );
+      affected += 1;
+    });
+    return affected;
   }
   // Locks deliberately scan immediately instead of waiting for the next
   // twenty-frame rule. `FrameRuleScanner` resets its cadence in force mode.
   scanImmediately(now = performance.now()) {
     const rows = this.scanner.scan(true);
-    return { scanned: true, rows, marks: this.vanish.mark(rows, now) };
+    return {
+      scanned: true,
+      rows,
+      marks: this.vanish.mark(rows, now),
+      blockedCells: this.scanner.lastBlockedCells || [],
+    };
   }
   hasPendingVanish() {
     return this.vanish.pending();
@@ -759,9 +890,10 @@ export class PhysicsWorld {
       );
       const fixture = new Dynamics.b2FixtureDef();
       fixture.shape = shape;
-      fixture.density = material.density;
-      fixture.friction = material.friction;
-      fixture.restitution = material.restitution;
+      const cellMaterial = materialForMino(material, cell.material);
+      fixture.density = cellMaterial.density;
+      fixture.friction = cellMaterial.friction;
+      fixture.restitution = cellMaterial.restitution;
       body.CreateFixture(fixture).SetUserData(cell);
     });
     const data = {
@@ -877,6 +1009,82 @@ export class PhysicsWorld {
     });
     return removed;
   }
+  tilesInRadius(x, y, radius) {
+    const r2 = Math.max(0, Number(radius) || 0) ** 2;
+    const result = [];
+    this.bodies.forEach((body) => {
+      const data = body.GetUserData?.();
+      data?.cells?.forEach((tile) => {
+        const center = body.GetWorldPoint(new this.api.Common.Math.b2Vec2(
+          tile.x - data.origin.x + 0.5,
+          tile.y - data.origin.y + 0.5,
+        ));
+        const dx = center.x - x;
+        const dy = center.y - y;
+        if (dx * dx + dy * dy <= r2) result.push({ body, tile, x: center.x - 0.5, y: center.y - 0.5 });
+      });
+    });
+    return result;
+  }
+  destroyTiles(entries) {
+    const removedByBody = new Map();
+    entries.forEach(({ body, tile, x, y }) => {
+      if (!body || !tile) return;
+      const removed = removedByBody.get(body) || new Map();
+      removed.set(tile, { x, y, angle: body.GetAngle?.() || 0 });
+      removedByBody.set(body, removed);
+    });
+    return this.fractureBodies(removedByBody);
+  }
+  disconnectTiles(entries) {
+    const selectedByBody = new Map();
+    entries.forEach(({ body, tile }) => {
+      if (!body || !tile) return;
+      const selected = selectedByBody.get(body) || new Set();
+      selected.add(tile);
+      selectedByBody.set(body, selected);
+    });
+    selectedByBody.forEach((selected, body) => {
+      const data = body.GetUserData?.();
+      if (!data?.cells?.length) return;
+      const unvisited = new Map(data.cells.map((tile) => [`${tile.x},${tile.y}`, tile]));
+      const components = [];
+      while (unvisited.size) {
+        const [key, first] = unvisited.entries().next().value;
+        unvisited.delete(key);
+        const component = [first];
+        for (let index = 0; index < component.length; index += 1) {
+          const cell = component[index];
+          // Every targeted mino loses all four bonds; non-targeted minos
+          // retain their ordinary physical compound connectivity.
+          if (selected.has(cell)) continue;
+          [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
+            const neighbor = unvisited.get(`${cell.x + dx},${cell.y + dy}`);
+            if (!neighbor || selected.has(neighbor)) return;
+            unvisited.delete(`${neighbor.x},${neighbor.y}`);
+            component.push(neighbor);
+          });
+        }
+        components.push(component);
+      }
+      const position = body.GetPosition();
+      const velocity = body.GetLinearVelocity();
+      const pose = {
+        position: { x: position.x, y: position.y }, angle: body.GetAngle(),
+        velocity: { x: velocity.x, y: velocity.y }, angularVelocity: body.GetAngularVelocity(),
+      };
+      data.cells.forEach((tile) => {
+        if (!selected.has(tile)) return;
+        tile.broken = { top: true, right: true, bottom: true, left: true };
+      });
+      this.onLockedPolyominoDestroyed?.({ body, data });
+      this.world.DestroyBody(body);
+      this.bodies = this.bodies.filter((candidate) => candidate !== body);
+      components.forEach((component) =>
+        this.createFragment(component, data.color, data.material || this.material, data.origin, pose));
+    });
+    return entries.length;
+  }
   breakPenetratingMinos() {
     const { Common: { Math } } = this.api;
     const brokenByBody = new Map();
@@ -884,6 +1092,9 @@ export class PhysicsWorld {
       if (!body.IsAwake?.()) return;
       const data = body.GetUserData();
       data.cells.forEach((cell) => {
+        // A foreign item is delayed damage control, not a valid target for a
+        // falling-mino attack. It still resolves normally through matches.
+        if (cell.godEssenceForeign) return;
         const centroid = body.GetWorldPoint(
           new Math.b2Vec2(
             cell.x - data.origin.x + 0.5,
@@ -910,6 +1121,7 @@ export class PhysicsWorld {
   }
   destroyMarked() {
     const vanishedLines = this.vanish.consumeLines();
+    const damagedMetal = [];
     const markedByBody = new Map(
       this.bodies
         .map((body) => [body, new Set(body.GetUserData().cells.filter((tile) => {
@@ -937,13 +1149,14 @@ export class PhysicsWorld {
             }
             body.ResetMassData();
           }
+          damagedMetal.push({ ...tile });
           return false;
         }))])
         .filter(([, marked]) => marked.size),
     );
     const vanished = this.fractureBodies(markedByBody);
     this.vanish.reset();
-    return { vanished, vanishedLines };
+    return { vanished, vanishedLines, damagedMetal };
   }
   step(ms, now = performance.now()) {
     this.bodies.forEach((body) => this.updateTemporaryMass(body, ms));
@@ -956,7 +1169,7 @@ export class PhysicsWorld {
     const broken = this.breakPenetratingMinos();
     const destroyed = this.vanish.due(now)
       ? this.destroyMarked()
-      : { vanished: [], vanishedLines: [] };
+      : { vanished: [], vanishedLines: [], damagedMetal: [] };
     return { ...scan, ...destroyed, broken };
   }
   clear() {

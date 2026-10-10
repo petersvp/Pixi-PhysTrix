@@ -33,6 +33,78 @@ export class EffectsRenderer {
     this.trails = [];
     this.particlePool = [];
     this.trailPool = [];
+    // One shared Graphics context draws every concurrent bolt. Rebuilding its
+    // vertices each ticker frame gives lightning its unstable electric read
+    // without allocating one Graphics object per target mino.
+    this.lightningGraphic = new PIXI.Graphics();
+    this.lightningGraphic.label = "lightningEffect";
+    this.root.addChild(this.lightningGraphic);
+    this.lightningEffects = [];
+  }
+
+  lightning(origin, targets, {
+    duration = 1000,
+    segments = 7,
+    jitter = 18,
+    glowColor = 0xffc928,
+    outlineTargets = true,
+    onComplete = null,
+  } = {}) {
+    if (!origin || !targets?.length) return false;
+    this.lightningEffects.push({
+      origin: { x: origin.x, y: origin.y },
+      targets: targets.map(({ x, y }) => ({ x, y })),
+      duration: Math.max(1, Number(duration) || 1000),
+      age: 0,
+      segments: Math.max(1, Math.floor(Number(segments) || 1)),
+      jitter: Math.max(0, Number(jitter) || 0),
+      glowColor,
+      outlineTargets: Boolean(outlineTargets),
+      onComplete,
+    });
+    return true;
+  }
+
+  drawLightning(effect) {
+    const graphic = this.lightningGraphic;
+    const sourceX = (effect.origin.x + 0.5) * CELL;
+    const sourceY = (effect.origin.y + 0.5) * CELL;
+    const drawBolt = (target) => {
+      const targetX = (target.x + 0.5) * CELL;
+      const targetY = (target.y + 0.5) * CELL;
+      const dx = targetX - sourceX;
+      const dy = targetY - sourceY;
+      const length = Math.hypot(dx, dy) || 1;
+      const perpendicularX = -dy / length;
+      const perpendicularY = dx / length;
+      const points = [{ x: sourceX, y: sourceY }];
+      for (let index = 1; index < effect.segments; index += 1) {
+        const progress = index / effect.segments;
+        const deviation = (Math.random() - 0.5) * effect.jitter;
+        points.push({
+          x: sourceX + dx * progress + perpendicularX * deviation,
+          y: sourceY + dy * progress + perpendicularY * deviation,
+        });
+      }
+      points.push({ x: targetX, y: targetY });
+      [
+        { width: 12, color: effect.glowColor, alpha: 0.17 },
+        { width: 6, color: effect.glowColor, alpha: 0.48 },
+        { width: 2.5, color: 0xffffff, alpha: 1 },
+      ].forEach((style) => {
+        graphic.moveTo(points[0].x, points[0].y);
+        points.slice(1).forEach((point) => graphic.lineTo(point.x, point.y));
+        graphic.stroke({ ...style, cap: "round", join: "round" });
+      });
+      if (!effect.outlineTargets) return;
+      const left = target.x * CELL + 2;
+      const top = target.y * CELL + 2;
+      const size = CELL - 4;
+      graphic.rect(left, top, size, size)
+        .stroke({ width: 7, color: effect.glowColor, alpha: 0.22 })
+        .stroke({ width: 2, color: 0xffffff, alpha: 0.95 });
+    };
+    effect.targets.forEach(drawBolt);
   }
 
   spawn(x, y, color, velocityX, velocityY, force = 1) {
@@ -168,6 +240,20 @@ export class EffectsRenderer {
   }
 
   update(deltaMS) {
+    if (this.lightningEffects.length) {
+      this.lightningGraphic.clear();
+      const completed = [];
+      this.lightningEffects = this.lightningEffects.filter((effect) => {
+        effect.age += deltaMS;
+        if (effect.age >= effect.duration) {
+          completed.push(effect);
+          return false;
+        }
+        this.drawLightning(effect);
+        return true;
+      });
+      completed.forEach((effect) => effect.onComplete?.());
+    }
     this.particles = this.particles.filter((particle) => {
       particle.age += deltaMS;
       particle.vy += 180 * (deltaMS / 1000);
@@ -191,6 +277,8 @@ export class EffectsRenderer {
   }
 
   destroy() {
+    this.lightningGraphic.destroy();
+    this.lightningEffects = [];
     [
       ...this.particles.map(({ sprite }) => sprite),
       ...this.particlePool,

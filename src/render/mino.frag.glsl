@@ -44,6 +44,10 @@ uniform vec4 uReflectionEnabled;
 uniform vec4 uReflectionOffset;
 uniform vec4 uReflectionDownsample;
 uniform vec4 uSceneSize;
+// Pixi supplies the accumulated display-object tint and alpha through its
+// global uniform group. Applying it at the final premultiplied output keeps
+// material lighting intact while allowing container alpha/filter effects.
+uniform vec4 uWorldColorAlpha;
 uniform sampler2D uReflectionTexture;
 uniform sampler2D uBevelProfile;
 uniform sampler2D uTransparencyCurve;
@@ -618,5 +622,5 @@ void main(void) {
   float alpha = clamp(transparency * finalAlpha, 0.0, 1.0);
   if (alpha <= 0.001) discard;
   if (uNormalPreview.x > 0.5) albedo = normal * 0.5 + 0.5;
-  gl_FragColor = vec4((albedo + specular) * alpha, alpha);
+  gl_FragColor = vec4((albedo + specular) * alpha, alpha) * uWorldColorAlpha;
 }

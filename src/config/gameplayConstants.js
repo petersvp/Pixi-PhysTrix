@@ -46,30 +46,22 @@ export const TOUCH_SOFT_DROP_FINGER_OFFSET_ROWS = -2;
 // soft-drop target. This avoids incidental finger drift starting a descent.
 export const TOUCH_SOFT_DROP_START_DISTANCE_PX = 80;
 
-// Gravity is capped once the Guideline curve reaches one simulation frame.
-// Further levels reduce lock time instead, keeping high-level play difficult.
-export const MIN_GRAVITY_INTERVAL_MS = 16;
+// The Guideline curve is expressed as milliseconds per row.  Cap it at real
+// 20G: twenty rows per 60 Hz frame, rather than the previous 16 ms / 1G cap.
+// The gravity step loop consumes every elapsed interval, so this produces an
+// immediate floor drop on an ordinary display frame while retaining its time
+// based behaviour at other refresh rates.
+export const MIN_GRAVITY_INTERVAL_MS = 1000 / (60 * 20);
+// The room/menu speed is zero based (Speed 0 is Guideline level 1). The
+// Guideline curve reaches the 20G cap at Speed 18, so keep the normal delay
+// through that speed and shorten it only afterwards.
+export const LOCK_DELAY_REDUCTION_START_SPEED = 18;
 export const POST_MAX_GRAVITY_LOCK_REDUCTION_MS = 25;
-export const MIN_LOCK_DELAY_MS = 100;
+export const MIN_LOCK_DELAY_MS = 200;
 export const gravityIntervalForLevel = (level) => {
   const n = Math.max(0, level - 1);
   return Math.pow(0.8 - n * 0.007, n) * 1000;
 };
-export const FIRST_MAX_GRAVITY_LEVEL = (() => {
-  let level = 1;
-  let steps = 0;
-  while (gravityIntervalForLevel(level) > MIN_GRAVITY_INTERVAL_MS) {
-    if (++steps > 1000) {
-      console.error("[Gameplay] Gravity-level safety limit reached.", {
-        level,
-        interval: gravityIntervalForLevel(level),
-      });
-      break;
-    }
-    level += 1;
-  }
-  return level;
-})();
 
 // Maximum vertical spread of fixture centers accepted by a horizontal clear scan.
 export const LINE_SCAN_VERTICAL_TOLERANCE = 0.5;
@@ -87,6 +79,9 @@ export const VANISH_DURATION_MS = 850;
 // wait prevents an unwinnable stalled state and deliberately triggers top-out.
 export const PHYSICS_RELEASE_SPAWN_MIN_WAIT_MS = 750;
 export const PHYSICS_RELEASE_SPAWN_MAX_WAIT_MS = 2500;
+// Falling mino drops normally release the next PM after their first valid
+// floor/locked-PM contact. A malformed or wedged drop must not freeze play.
+export const PHYSICS_MINO_DROP_CONTACT_MAX_WAIT_MS = 2000;
 // Physics material controls. Box2D uses density rather than a direct mass;
 // this mass value is therefore supplied as fixture density for equal minos.
 export const PHYSICS_MASS = 1;

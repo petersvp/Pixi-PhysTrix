@@ -247,10 +247,72 @@ export class SinglePlayerHud {
     this.overlayLayout = overlayLayout;
     this.material = material;
     this.previewMaterials = previewMaterials;
+    this.godEssenceAtlas = null;
     this.gameOverOnly = gameOverOnly;
     this.showGodEssenceWallet = showGodEssenceWallet;
     if (!gameOverOnly) this.create();
     this.createOverlays();
+  }
+
+  setGodEssenceAtlas(texture, atlas) {
+    this.godEssenceAtlas = texture && atlas ? { texture, atlas } : null;
+    this.holdRenderer?.setGodEssenceAtlas(texture, atlas);
+    this.nextRenderer?.setGodEssenceAtlas(texture, atlas);
+    this.updateActiveGodEssenceEffect(this.activeGodEssenceItemIndex);
+  }
+
+  setGodEssencePresentation({ chromaticEchoAmount = 0, queueJamAmount = 0 } = {}) {
+    const chromaticAmount = Math.max(0, Math.min(1, Number(chromaticEchoAmount) || 0));
+    if (chromaticAmount && !this.chromaticEchoFilter) {
+      this.chromaticEchoFilter = new PIXI.ColorMatrixFilter();
+      this.nextPanel.filters = [...(this.nextPanel.filters || []), this.chromaticEchoFilter];
+    }
+    if (this.chromaticEchoFilter) {
+      this.chromaticEchoFilter.reset();
+      this.chromaticEchoFilter.saturate(-chromaticAmount);
+      if (chromaticAmount === 0) {
+        this.nextPanel.filters = (this.nextPanel.filters || []).filter(
+          (filter) => filter !== this.chromaticEchoFilter,
+        );
+        this.chromaticEchoFilter.destroy();
+        this.chromaticEchoFilter = null;
+      }
+    }
+    // Queue Jam obscures both the preview and its label/frame, while Hold
+    // remains available as the deliberate damage-control option.
+    if (this.nextPanel) this.nextPanel.alpha = 1 - Math.max(0, Math.min(1, Number(queueJamAmount) || 0));
+  }
+
+  updateActiveGodEssenceEffect(itemIndex = -1, remainingMs = 0) {
+    this.activeGodEssenceItemIndex = itemIndex;
+    const icon = this.activeGodEssenceEffectIcon;
+    const atlasSource = this.godEssenceAtlas;
+    const cell = atlasSource?.atlas?.itemCells?.[itemIndex];
+    if (!icon || !atlasSource || !cell) {
+      if (icon) icon.visible = false;
+      if (this.activeGodEssenceEffectTime) this.activeGodEssenceEffectTime.visible = false;
+      return;
+    }
+    const atlas = atlasSource.atlas;
+    if (this.renderedActiveGodEssenceItemIndex !== itemIndex) {
+      icon.texture = new PIXI.Texture({
+        source: atlasSource.texture.source,
+        frame: new PIXI.Rectangle(
+          (cell.column - 1) * atlas.cellSize,
+          (cell.row - 1) * atlas.cellSize,
+          atlas.cellSize,
+          atlas.cellSize,
+        ),
+      });
+      this.renderedActiveGodEssenceItemIndex = itemIndex;
+    }
+    icon.blendMode = atlas.activeEffectIconBlendMode ?? "normal";
+    icon.visible = true;
+    if (this.activeGodEssenceEffectTime) {
+      const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+      this.activeGodEssenceEffectTime.text = `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
+      this.activeGodEssenceEffectTime.visible = true;
+    }
   }
 
   drawPanelFrame(graphics, rect, outerSide = null) {
@@ -557,6 +619,23 @@ export class SinglePlayerHud {
     this.livesText.position.set(this.layout.hold.width / 2, HUD_LIVES_Y_OFFSET);
     this.livesText.visible = false;
     this.holdPanel.addChild(this.livesText);
+    this.activeGodEssenceEffectIcon = new PIXI.Sprite(PIXI.Texture.EMPTY);
+    this.activeGodEssenceEffectIcon.label = "activeGodEssenceEffectIcon";
+    this.activeGodEssenceEffectIcon.anchor.set(0.5, 1);
+    // Keep the effect readout beside the Pocket rather than over its title.
+    this.activeGodEssenceEffectIcon.position.set(22, 168);
+    this.activeGodEssenceEffectIcon.width = 36;
+    this.activeGodEssenceEffectIcon.height = 36;
+    this.activeGodEssenceEffectIcon.visible = false;
+    this.activeGodEssenceEffectTime = new PIXI.Text({
+      text: "",
+      style: { fontFamily: "Quantico", fontSize: 22, fontWeight: "bold", fill: 0xffffff, stroke: { color: 0x06101d, width: 3 } },
+    });
+    this.activeGodEssenceEffectTime.label = "activeGodEssenceEffectTime";
+    this.activeGodEssenceEffectTime.anchor.set(0, 0.5);
+    this.activeGodEssenceEffectTime.position.set(44, 150);
+    this.activeGodEssenceEffectTime.visible = false;
+    this.holdPanel.addChild(this.activeGodEssenceEffectIcon, this.activeGodEssenceEffectTime);
 
     this.statsPanel = new PIXI.Container();
     this.statsPanel.label = "statisticsPanel";
@@ -630,10 +709,18 @@ export class SinglePlayerHud {
     this.nextPanel.addChild(this.nextPreview);
     this.holdRenderer = new PreviewPanel(this.layout.hold.width, this.material, this.previewMaterials);
     this.nextRenderer = new PreviewPanel(this.layout.next.width, this.material, this.previewMaterials);
+    if (this.godEssenceAtlas) {
+      this.holdRenderer.setGodEssenceAtlas(this.godEssenceAtlas.texture, this.godEssenceAtlas.atlas);
+      this.nextRenderer.setGodEssenceAtlas(this.godEssenceAtlas.texture, this.godEssenceAtlas.atlas);
+    }
   }
 
-  updateGodEssenceWallet(sections = [], active = 0) {
-    if (!this.itemSlots || !this.walletSections) return;
+  updateGodEssenceWallet(sections = [], active = 0, ready = false) {
+    // A game-over action can replace the scene during the same ticker pass
+    // that the old GameManager reaches render(). Pixi has already released
+    // these Graphics contexts by then, so the stale HUD must be a no-op.
+    if (!this.itemSlots || !this.walletSections || this.itemSlots.destroyed || this.walletSections.destroyed)
+      return;
     const actualSections = [...sections, active]
       .map((value) => Math.max(0, Math.floor(Number(value) || 0)))
       .filter(Boolean);
@@ -646,6 +733,9 @@ export class SinglePlayerHud {
     const slots = this.itemSlots;
     const itemSections = this.walletSections;
     slots.clear();
+    slots.filters = ready && PIXI.filters?.GlowFilter ? [new PIXI.filters.GlowFilter({
+      distance: 16, outerStrength: 3, innerStrength: 1, color: 0xffdf38, quality: 0.5,
+    })] : null;
     itemSections.removeChildren().forEach((section) => section.destroy());
     // The wallet is one connected rail. The grid is deliberately quiet: its
     // dividers establish ten capacities without making them look like items.
@@ -1210,6 +1300,18 @@ export class SinglePlayerHud {
     action.onTrigger = onTrigger || null;
   }
 
+  // Keyboard Enter and Gamepad A share this route with pointer/touch. The
+  // host may replace the default retry with Back to Lobby or another action.
+  triggerGameOverAction(source = "gamepad") {
+    if (
+      !this.gameOverPlayAgain?.visible ||
+      this.gameOverRestartRemaining > 0
+    ) return false;
+    const action = this.gameOverAction?.onTrigger || this.restartAction;
+    action?.({ source });
+    return Boolean(action);
+  }
+
   hideGameOverAction() {
     if (this.gameOverPlayAgain) this.gameOverPlayAgain.visible = false;
   }
@@ -1400,6 +1502,9 @@ export class SinglePlayerHud {
     showQueue = true,
     godEssenceWallet = [],
     godEssenceActive = 0,
+    godEssenceReady = false,
+    activeGodEssenceItemIndex = -1,
+    activeGodEssenceRemainingMs = 0,
   }) {
     // Callers that deliberately have no objectives may pass null. Normalize it
     // here so the HUD always treats that as an empty objective set.
@@ -1408,7 +1513,8 @@ export class SinglePlayerHud {
     this.holdPanel.visible = showHold;
     this.holdPanel.eventMode = showHold ? "static" : "none";
     this.nextPanel.visible = showQueue;
-    this.updateGodEssenceWallet(godEssenceWallet, godEssenceActive);
+    this.updateGodEssenceWallet(godEssenceWallet, godEssenceActive, godEssenceReady);
+    this.updateActiveGodEssenceEffect(activeGodEssenceItemIndex, activeGodEssenceRemainingMs);
     const totalSeconds = Math.floor(elapsedMs / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = String(totalSeconds % 60).padStart(2, "0");
@@ -1467,6 +1573,8 @@ export class SinglePlayerHud {
   }
 
   destroy() {
+    this.chromaticEchoFilter?.destroy();
+    this.chromaticEchoFilter = null;
     [
       this.holdPanel,
       this.nextPanel,
