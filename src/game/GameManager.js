@@ -96,6 +96,7 @@ export class GameManager {
     // object while it remains in the same rejected chain. The Disabled cue is
     // therefore once for that sealed board position, not once per frame.
     this.lineSealBlockedTiles = new Set();
+    this.noChainsBlockedTiles = new Set();
     this.gameOverInputRemaining = 0;
     this.statistics = new GameStatistics();
     this.startLevel = 0;
@@ -112,6 +113,7 @@ export class GameManager {
     this.classicCombo = 0;
     this.goalProgress = { combos: 0, chains: 0, megaspins: 0, perfectClears: 0 };
     this.lives = this.initialLives();
+    this.defense = 0;
     this.godEssence = 0;
     this.godEssenceWallet = [];
     this.godEssenceQueuedWallets = [];
@@ -121,6 +123,7 @@ export class GameManager {
     this.godEssencePolarityTogglePending = false;
     this.activeGodEssencePassiveEffect = null;
     this.godEssencePassiveFlags = new Set();
+    this.burdenStartedPassiveItems = new Set();
     this.id = 1;
     // Sessions always run inside AppShell's persistent v8 Application.
     // Creating a second renderer here would violate scene routing and can
@@ -294,8 +297,23 @@ export class GameManager {
     });
     if (!fresh.length) return;
     this.playfield.pulseLineSealRange?.(fresh);
-    this.playfield.markLineSealBlockedTiles?.(fresh, 5_000);
+    this.playfield.markLineSealBlockedTiles?.(fresh, 10_000, "line-seal");
     this.emitAudioEvent("godEssenceTrigger", { eventPath: "event:/Items/Disabled" });
+  }
+  notifyNoChainsBlocked(cells = []) {
+    const fresh = cells.filter(({ x, y, tile: suppliedTile }) => {
+      const tile = suppliedTile ?? this.board.get(x, y);
+      const key = `${Math.floor(x)},${Math.floor(y)}`;
+      if (!tile || this.noChainsBlockedTiles.has(key)) return false;
+      this.noChainsBlockedTiles.add(key);
+      return true;
+    });
+    if (!fresh.length) return;
+    this.playfield.markLineSealBlockedTiles?.(fresh, 20_000, "no-chains");
+    this.emitAudioEvent("godEssenceTrigger", { eventPath: "event:/Items/Disabled" });
+  }
+  finishNoChainsBlockedFeedback() {
+    this.playfield.finishBlockedOutlines?.("no-chains", 1_000);
   }
 
   spinAudioValue(spin, lines = 0, order = 4) {
@@ -333,6 +351,9 @@ export class GameManager {
     this.trash = new TrashSystem(this.session?.trash, this.trashRandom, this.session?.roomRules);
     this.gameplay.spawnTrash?.(this, this.trash);
     this.queue = new PieceQueue(this.queueRandom, this.session?.polyominoPreset, this.session?.roomRules);
+    this.burdenOpeningRewardQueued = false;
+    this.configureGodEssenceQueueDrops();
+    this.queueBurdenOpeningReward();
     this.holdEnabled = this.session?.roomRules?.mutators?.enableHold !== false;
     this.score = this.lines = 0;
     this.elapsedMs = 0;
@@ -348,6 +369,7 @@ export class GameManager {
     this.hold = null;
     this.canHold = this.holdEnabled;
     this.pendingMinoDrops = 0;
+    this.defense = 0;
     this.horizontalDirection = 0;
     this.horizontalRepeat = 0;
     this.horizontalInitial = true;
@@ -364,6 +386,8 @@ export class GameManager {
     this.playfield.hud.resetCallout();
     this.godEssenceWallet = [];
     this.lineSeals = [];
+    this.lineSealBlockedTiles.clear();
+    this.noChainsBlockedTiles.clear();
     this.godEssenceQueuedWallets = [];
     this.godEssenceRewardFlights = [];
     this.godEssenceTurn = 0;
@@ -404,7 +428,10 @@ export class GameManager {
       this.active.godEssenceChoice = 0;
       this.active.godEssenceItemIndex = reward.choices[0];
       this.active.godEssenceItemName = this.godEssenceItems[this.active.godEssenceItemIndex]?.name || "ITEM";
-      this.active.godEssenceForeign = this.selfTargetPvpMode;
+      // Generated room-rule drops are attacks. Keep that allegiance while a
+      // reward block is rotated through its three choices as well.
+      this.active.godEssenceForcedForeign = Boolean(reward.foreign);
+      this.active.godEssenceForeign = this.active.godEssenceForcedForeign || this.selfTargetPvpMode;
       this.active.godEssencePolarity = this.active.godEssenceForeign
         ? "foreign"
         : this.godEssenceItems[this.active.godEssenceItemIndex]?.polarity || "self";
@@ -439,12 +466,20 @@ export class GameManager {
       this.active.godEssenceForeign = Boolean(type.godEssenceForeign);
       this.active.godEssencePolarity = this.active.godEssenceForeign
         ? "foreign"
-        : this.godEssenceItems[type.godEssenceItemIndex]?.polarity || "self";
+        : type.godEssencePolarity || this.godEssenceItems[type.godEssenceItemIndex]?.polarity || "self";
       const chain = this.session?.roomRules?.chain || {};
-      if (this.active.godEssenceForeign && chain.mode === "lines-out") {
-        this.active.color = this.godEssenceTint("foreignMino", 0xc56868);
-        this.active.minos.forEach((mino) => { mino.baseColor = this.active.color; });
+      // An item O is not an ordinary yellow O. Give direct queue insertions
+      // the same neutral item-block base as reward blocks before applying a
+      // Lines Out allegiance tint.
+      this.active.color = 0x9aa3ad;
+      if (chain.mode === "lines-out") {
+        this.active.color = this.active.godEssenceForeign
+          ? this.godEssenceTint("foreignMino", 0xc56868)
+          : this.active.godEssencePolarity === "others"
+          ? this.godEssenceTint("othersMino", 0xc57a8b)
+          : this.godEssenceTint("selfMino", 0x75af8a);
       }
+      this.active.minos.forEach((mino) => { mino.baseColor = this.active.color; });
       this.active.minos.forEach((mino) => {
         mino.godEssenceItemIndex = this.active.godEssenceItemIndex;
         mino.godEssenceItemName = this.active.godEssenceItemName;
@@ -465,6 +500,8 @@ export class GameManager {
     this.active.id = this.id++;
     if (Number.isInteger(this.active.godEssenceItemIndex))
       this.active.minos.forEach((mino) => { mino.godEssenceInstanceId = this.active.id; });
+    if (reward?.burdenOpeningBomb)
+      this.startBurdenOpeningBomb(this.active);
     this.irsPending = true;
     this.gameplay.onSpawn(this, this.active);
     if (spawnedGodEssenceReward)
@@ -500,6 +537,139 @@ export class GameManager {
   }
   setGodEssenceItems(items = []) {
     this.godEssenceItems = Array.isArray(items) ? items : [];
+    this.configureGodEssenceQueueDrops();
+    this.queueBurdenOpeningReward();
+  }
+  configureGodEssenceQueueDrops() {
+    if (this.queue) this.queue.onBagCompleted = () => this.createRandomGodEssenceQueueItem();
+  }
+  queueBurdenOpeningReward() {
+    if (this.burdenOpeningRewardQueued ||
+      this.session?.roomRules?.pvp?.godEssenceBurdenMode !== true ||
+      !this.godEssenceItems.length) return false;
+    const burdens = this.godEssenceItems.filter((item) =>
+      item.polarity === "others" &&
+      !["filler", "metal"].includes(item.id) &&
+      ["InflictPassiveEffect", "SetQueueMaterial"].includes(item.action?.name) &&
+      this.godEssenceItemMatchesCurrentMode(item) &&
+      this.godEssenceItemMeetsRequirements(item));
+    if (!burdens.length) return false;
+    const remaining = [...burdens];
+    const choices = [];
+    while (remaining.length && choices.length < 3) {
+      const index = Math.floor(this.queueRandom() * remaining.length);
+      choices.push(this.godEssenceItems.indexOf(remaining.splice(index, 1)[0]));
+    }
+    this.queue.enqueueHidden({
+      id: "O",
+      godEssenceReward: { choices, foreign: true, burdenOpeningBomb: true },
+    });
+    this.burdenOpeningRewardQueued = true;
+    return true;
+  }
+  createRandomGodEssenceQueueItem() {
+    const pvp = this.session?.roomRules?.pvp || {};
+    if (!pvp.godEssence || !pvp.godEssenceRandomItemDrops) return null;
+    const chance = Math.max(0, Math.min(100, Number(pvp.godEssenceRandomItemDropChance) || 0));
+    if (this.queueRandom() * 100 >= chance) return null;
+    const eligible = this.godEssenceItems.filter((item) =>
+      this.godEssenceItemMatchesCurrentMode(item) && this.godEssenceItemMeetsRequirements(item));
+    if (!eligible.length) return null;
+    const item = eligible[Math.floor(this.queueRandom() * eligible.length)];
+    // This is a normal local queue entry. Preserve its authored allegiance
+    // now, because the generated O otherwise has no polarity metadata.
+    return {
+      id: "O",
+      godEssenceItemIndex: this.godEssenceItems.indexOf(item),
+      godEssencePolarity: item.polarity || "self",
+    };
+  }
+  startBurdenOpeningBomb(piece) {
+    const bombIndex = this.godEssenceItems.findIndex((item) => item.id === "bomb");
+    const item = this.godEssenceItems[bombIndex];
+    if (bombIndex < 0 || !item || !piece) return false;
+    return this.startGodEssencePassiveEffect({
+      itemId: item.id,
+      amount: Math.max(1, piece.minos?.length || 1),
+      durationMs: 20_000,
+      timedInBurden: true,
+      burdenOpeningBomb: true,
+      start(target, state) {
+        target.emitAudioEvent("godEssencePassiveStart", {
+          itemId: state.itemId,
+          // The opening countdown is a timer, not a Bomb detonation. The
+          // Bomb event is emitted only if its forced claim actually expires.
+          eventPath: null,
+          parameter: item.audioParameter,
+          parameterValue: item.audioParameterValue ?? 1,
+          burden: false,
+          playAudio: false,
+        });
+      },
+      end(target, state, reason) {
+        target.emitAudioEvent("godEssencePassiveEnd", {
+          itemId: state.itemId,
+          eventPath: item.audioEventEnd,
+          parameter: item.audioParameter,
+        });
+        if (reason !== "expired") return;
+        // An unplaced block must still be locked by the player. Arm it now;
+        // the lock hook detonates it at the placed location.
+        if (target.active?.id === piece.id) {
+          target.burdenOpeningBombPending = {
+            pieceId: piece.id,
+            itemIndex: target.active.godEssenceItemIndex,
+          };
+          return;
+        }
+        target.resolveBurdenOpeningBomb(piece.id);
+      },
+    });
+  }
+  openingBurdenEntries(pieceId) {
+    const entries = [];
+    this.board.forEachCell((tile, x, y) => {
+      if (tile?.pieceId === pieceId || String(tile?.pieceId).startsWith(`${pieceId}:`))
+        entries.push({ tile, x, y });
+    });
+    const physicsTiles = [];
+    this.gameplay?.physics?.bodies?.forEach((body) =>
+      body.GetUserData?.()?.cells?.forEach((tile) => {
+        if (tile?.godEssenceInstanceId === pieceId) physicsTiles.push(tile);
+      }));
+    entries.push(...(this.gameplay?.physics?.entriesForTiles?.(physicsTiles) || []));
+    return entries;
+  }
+  resolveBurdenOpeningBomb(pieceId, selectedItemIndex = null) {
+    const entries = this.openingBurdenEntries(pieceId);
+    if (!entries.length) return false;
+    const itemIndex = Number.isInteger(selectedItemIndex)
+      ? selectedItemIndex
+      : entries[0].tile?.godEssenceItemIndex;
+    const bombIndex = this.godEssenceItems.findIndex((item) => item.id === "bomb");
+    if (!Number.isInteger(itemIndex) || bombIndex < 0) return false;
+    const position = polyominoCentroid(entries);
+    // Resolve the selected burden once. The following Bomb clear may destroy
+    // the same minos, so prevent the item-consumption pass from claiming it a
+    // second time.
+    entries.forEach(({ tile }) => { tile.godEssenceResolving = true; });
+    this.triggerGodEssenceItem(itemIndex, {
+      source: "burden-opening-forced-claim",
+      x: position.x,
+      y: position.y,
+      polarity: "foreign",
+      foreign: true,
+      destroyedMinoCount: entries.length,
+    });
+    this.triggerGodEssenceItem(bombIndex, {
+      source: "burden-opening-bomb-expired",
+      x: position.x,
+      y: position.y,
+      polarity: "foreign",
+      foreign: true,
+      destroyedMinoCount: entries.length,
+    });
+    return true;
   }
   setSelfTargetPvpMode(enabled = false) {
     this.selfTargetPvpMode = Boolean(enabled);
@@ -588,7 +758,7 @@ export class GameManager {
       presentationId: rewardFlight?.id,
     });
     this.godEssenceWallet = [];
-    this.emitAudioEvent("godEssenceObtain");
+    this.emitAudioEvent("godEssenceObtain", { choices: [...choices] });
     console.info("[God Essence] Reward options selected.", {
       prices,
       choices: choices.map((index) => this.godEssenceItems[index]?.name || index),
@@ -614,9 +784,14 @@ export class GameManager {
     });
     this.godEssenceRewardFlights = pending;
   }
-  completeGodEssenceLock() {
+  completeGodEssenceLock(piece = null) {
     if (this.session?.roomRules?.pvp?.godEssence === true)
       this.godEssencePolarityTogglePending = true;
+    if (piece?.id === this.burdenOpeningBombPending?.pieceId) {
+      const pending = this.burdenOpeningBombPending;
+      this.burdenOpeningBombPending = null;
+      this.resolveBurdenOpeningBomb(pending.pieceId, pending.itemIndex);
+    }
   }
   applyPendingGodEssencePolarity() {
     if (!this.godEssencePolarityTogglePending) return;
@@ -652,8 +827,21 @@ export class GameManager {
     return handled;
   }
   startGodEssencePassiveEffect(effect) {
+    this.burdenReactivation = null;
     this.endGodEssencePassiveEffect("interrupted");
-    const state = { ...effect, remainingMs: Math.max(0, Number(effect.durationMs) || 0) };
+    const burdenMode = this.session?.roomRules?.pvp?.godEssenceBurdenMode === true;
+    const burdenSpecial = ["blind", "desaturation", "astigmatism"].includes(effect.itemId);
+    const durationMs = burdenMode && burdenSpecial
+      ? 30_000
+      : effect.durationMs;
+    const state = {
+      ...effect,
+      durationMs,
+      burden: burdenMode && effect.itemId !== "no-chains" && !effect.timedInBurden,
+      suppressStartAudio: burdenMode && this.burdenStartedPassiveItems.has(effect.itemId),
+      remainingMs: Math.max(0, Number(durationMs) || 0),
+    };
+    if (burdenMode) this.burdenStartedPassiveItems.add(effect.itemId);
     this.activeGodEssencePassiveEffect = state;
     state.start?.(this, state);
     return true;
@@ -662,14 +850,39 @@ export class GameManager {
     const state = this.activeGodEssencePassiveEffect;
     if (!state) return false;
     this.activeGodEssencePassiveEffect = null;
-    state.end?.(this, state);
+    state.end?.(this, state, reason);
     return true;
   }
   updateGodEssencePassiveEffect(ms) {
     const state = this.activeGodEssencePassiveEffect;
-    if (!state) return;
+    if (!state) {
+      if (!this.burdenReactivation) return;
+      this.burdenReactivation.remainingMs -= ms;
+      if (this.burdenReactivation.remainingMs <= 0) {
+        const effect = this.burdenReactivation.effect;
+        this.burdenReactivation = null;
+        this.startGodEssencePassiveEffect(effect);
+      }
+      return;
+    }
+    const burdenMode = this.session?.roomRules?.pvp?.godEssenceBurdenMode === true;
+    const cyclingEffect = ["blind", "desaturation", "astigmatism"].includes(state.itemId);
+    if (burdenMode && state.burden && !cyclingEffect) return;
     state.remainingMs -= ms;
-    if (state.remainingMs <= 0) this.endGodEssencePassiveEffect();
+    if (state.remainingMs > 0) return;
+    if (burdenMode && state.itemId === "no-chains") {
+      const effect = { ...state };
+      this.endGodEssencePassiveEffect();
+      this.burdenReactivation = { effect, remainingMs: 2_000 };
+      return;
+    }
+    if (burdenMode && cyclingEffect) {
+      const effect = { ...state };
+      this.endGodEssencePassiveEffect();
+      this.burdenReactivation = { effect, remainingMs: 10_000 };
+      return;
+    }
+    this.endGodEssencePassiveEffect();
   }
   hasGodEssencePassiveEffect(itemId) {
     return this.godEssencePassiveFlags.has(itemId);
@@ -677,17 +890,38 @@ export class GameManager {
   outgoingAttackMultiplier() {
     const effect = this.activeGodEssencePassiveEffect;
     return effect?.itemId === "sword"
-      ? 2 + Math.max(1, Math.floor(Number(effect.amount) || 1)) * 2
+      ? 1 + Math.max(1, Math.floor(Number(effect.amount) || 1)) * 0.25
       : 1;
   }
   modifyOutgoingAttack(value) {
     return Math.max(0, Math.floor(Number(value) || 0)) * this.outgoingAttackMultiplier();
   }
   resolveGodEssenceItem(itemIndex, { polarity = "self", foreign = false, ...context } = {}) {
+    if (this.activeGodEssencePassiveEffect?.burdenOpeningBomb)
+      this.endGodEssencePassiveEffect("claimed");
     if (!foreign && polarity === "others") {
+      const brokenCells = context.itemCells?.filter((cell) =>
+        Number.isFinite(cell?.x) && Number.isFinite(cell?.y)) || [];
+      const brokenCell = brokenCells.length
+        ? brokenCells.reduce(
+          (center, cell) => ({ x: center.x + cell.x / brokenCells.length, y: center.y + cell.y / brokenCells.length }),
+          { x: 0, y: 0 },
+        )
+        : null;
       console.info("[God Essence] Sending item to another player.", { itemIndex, ...context });
       this.emitAudioEvent("godEssenceSend", { itemIndex });
-      this.onAttack?.({ attackType: "god-essence-item", value: itemIndex, source: this });
+      // The Showdown presentation can launch the sent icon from the mino
+      // that actually broke. This remains local metadata; the relay attack
+      // protocol itself stays unchanged.
+      this.onAttack?.({
+        attackType: "god-essence-item",
+        value: itemIndex,
+        source: this,
+        itemPosition: brokenCell || (Number.isFinite(context.x) && Number.isFinite(context.y)
+          ? { x: context.x, y: context.y }
+          : null),
+        itemCells: brokenCells,
+      });
       return false;
     }
     return this.triggerGodEssenceItem(itemIndex, { polarity, foreign, ...context });
@@ -819,6 +1053,7 @@ export class GameManager {
     });
   }
   consumeDestroyedGodEssenceTiles(tiles = []) {
+    this.collectDefenseFromDestroyedTiles(tiles);
     const consumed = new Map();
     tiles.forEach((tile) => {
       if (!Number.isInteger(tile?.godEssenceItemIndex) || tile.godEssenceResolving) return;
@@ -875,6 +1110,36 @@ export class GameManager {
     const gems = cells.filter((cell) => cell?.material === "gem" || cell?.gem).length;
     if (gems) this.godEssenceTurn += gems;
   }
+  collectDefenseFromDestroyedTiles(tiles = []) {
+    const earned = tiles.filter((tile) =>
+      tile?.attachment === true || tile?.defenseReward === true,
+    ).length;
+    if (!earned) return 0;
+    this.defense += earned;
+    this.render();
+    return earned;
+  }
+  absorbDefenseDamage(incoming) {
+    const damage = Math.min(this.defense, Math.ceil(incoming * 0.6));
+    if (damage) {
+      this.defense -= damage;
+      this.render();
+    }
+    return incoming - damage;
+  }
+  awardAttackDefense(attackValue, lines) {
+    const matchedLines = Math.max(0, Math.floor(Number(lines) || 0));
+    if (matchedLines <= 2) return 0;
+    const outgoingAttack = Math.max(0, Number(attackValue) || 0);
+    const defenseBasis = matchedLines >= 4
+      ? Math.max(outgoingAttack, matchedLines)
+      : outgoingAttack;
+    const gain = Math.floor(defenseBasis * 0.25);
+    if (!gain) return 0;
+    this.defense += gain;
+    this.render();
+    return gain;
+  }
   awardGodEssenceWalletSections(...sections) {
     if (this.session?.roomRules?.pvp?.godEssence !== true) return false;
     const awarded = (sections.length ? sections : [1])
@@ -887,7 +1152,17 @@ export class GameManager {
   applyPVPAttack(type, value = 0) {
     const count = Math.max(0, Math.floor(Number(value) || 0));
     const shielded = this.hasGodEssencePassiveEffect("shield");
-    if (type === "attachments" && !shielded && this.session?.roomRules?.pvp?.pmOrderAttack !== false) this.queue.addAttachments(count);
+    const remainingAfterDefense = () => {
+      const defenseBefore = this.defense;
+      const remaining = shielded ? 0 : this.absorbDefenseDamage(count);
+      if (count > 0) this.emitAudioEvent("godEssenceDamage", {
+        attackValue: count,
+        blocked: shielded || this.defense < defenseBefore,
+      });
+      return remaining;
+    };
+    if (type === "attachments" && this.session?.roomRules?.pvp?.pmOrderAttack !== false)
+      this.queue.addAttachments(remainingAfterDefense());
     // Gems are a reward, not a hostile attack. Shield never rejects them.
     if (type === "gems" && this.session?.roomRules?.pvp?.godEssence !== false) this.queue.addGems(count);
     if (type === "god-essence-item" && this.session?.roomRules?.pvp?.godEssence !== false) {
@@ -916,8 +1191,9 @@ export class GameManager {
         });
       }
     }
-    if (type === "mino-drops" && !shielded && this.session?.roomRules?.pvp?.minoDropsAttack !== false)
-      this.pendingMinoDrops = (this.pendingMinoDrops || 0) + count;
+    if (type === "mino-drops" && this.session?.roomRules?.pvp?.minoDropsAttack !== false) {
+      this.pendingMinoDrops = (this.pendingMinoDrops || 0) + remainingAfterDefense();
+    }
   }
   clearPendingMinoDrops() {
     this.pendingMinoDrops = 0;
@@ -1382,7 +1658,8 @@ export class GameManager {
       this.active.godEssenceChoice = (this.active.godEssenceChoice + (amount < 0 ? choices.length - 1 : 1)) % choices.length;
       this.active.godEssenceItemIndex = choices[this.active.godEssenceChoice];
       this.active.godEssenceItemName = this.godEssenceItems[this.active.godEssenceItemIndex]?.name || "ITEM";
-      this.active.godEssenceForeign = this.selfTargetPvpMode;
+      this.active.godEssenceForeign =
+        Boolean(this.active.godEssenceForcedForeign) || this.selfTargetPvpMode;
       this.active.godEssencePolarity = this.active.godEssenceForeign
         ? "foreign"
         : this.godEssenceItems[this.active.godEssenceItemIndex]?.polarity || "self";
@@ -1533,7 +1810,13 @@ export class GameManager {
           : this.input.held("right")
             ? 1
             : 0;
-    const desiredDirection = this.hasGodEssencePassiveEffect("left-right-swap")
+    // The Upside Down presentation rotates the field by 180 degrees. Reverse
+    // horizontal input with it so physical left/right still matches the
+    // player's view; Left/Right Swap then deliberately cancels that reversal.
+    const reverseHorizontalInput =
+      this.hasGodEssencePassiveEffect("left-right-swap") !==
+      this.hasGodEssencePassiveEffect("upside-down");
+    const desiredDirection = reverseHorizontalInput
       ? -requestedDirection
       : requestedDirection;
     if (desiredDirection !== this.horizontalDirection) {
@@ -1652,6 +1935,8 @@ export class GameManager {
       queueJam: this.hasGodEssencePassiveEffect("queue-jam"),
       timeMs: this.elapsedMs,
     });
+    const visiblePassive = this.activeGodEssencePassiveEffect || this.burdenReactivation?.effect;
+    const passiveIsDormant = !this.activeGodEssencePassiveEffect && Boolean(visiblePassive);
     this.playfield.hud.update({
       score: this.score,
       lines: this.lines,
@@ -1671,10 +1956,13 @@ export class GameManager {
       godEssenceWallet: this.godEssenceDisplayWallet(),
       godEssenceActive: this.godEssenceTurn,
       godEssenceReady: this.hasPendingGodEssenceReward(),
-      activeGodEssenceItemIndex: this.activeGodEssencePassiveEffect
-        ? this.godEssenceItems.findIndex((item) => item.id === this.activeGodEssencePassiveEffect.itemId)
+      activeGodEssenceItemIndex: visiblePassive
+        ? this.godEssenceItems.findIndex((item) => item.id === visiblePassive.itemId)
         : -1,
-      activeGodEssenceRemainingMs: this.activeGodEssencePassiveEffect?.remainingMs || 0,
+      activeGodEssenceRemainingMs: passiveIsDormant ? 0 : visiblePassive?.remainingMs || 0,
+      activeGodEssenceBurden: passiveIsDormant || Boolean(visiblePassive?.burden),
+      defense: this.defense,
+      defenseShieldItemIndex: this.godEssenceItems.findIndex((item) => item.id === "shield"),
     });
     this.playfield.renderer.draw(
       this.board,

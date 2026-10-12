@@ -587,6 +587,7 @@ export class PhysicsWorld {
         colorIndex: colorMode && colorCount ? Math.floor(random() * colorCount) : -1,
         baseColor: 0x88909c,
         material: drop.material,
+        defenseReward: true,
         ...(drop.metalLives ? { metalLives: drop.metalLives } : {}),
         marked: false,
         visualLinks: { top: false, right: false, bottom: false, left: false },
@@ -663,9 +664,11 @@ export class PhysicsWorld {
       rows,
       marks: this.vanish.mark(rows, now),
       blockedCells: this.scanner.lastBlockedCells || [],
+      noChainsCells: this.scanner.lastNoChainsCells || [],
     };
   }
   armChainBreak() { this.scanner.armChainBreak(); }
+  setChainBreakActive(active) { this.scanner.setChainBreakActive(active); }
   setCatalystActive(active) { this.scanner.setCatalystActive(active); }
   setChainsEnabled(enabled) {
     this.scanner.setChainsEnabled(enabled);
@@ -760,6 +763,7 @@ export class PhysicsWorld {
       rows,
       marks: this.vanish.mark(rows, now),
       blockedCells: this.scanner.lastBlockedCells || [],
+      noChainsCells: this.scanner.lastNoChainsCells || [],
     };
   }
   hasPendingVanish() {

@@ -42,27 +42,28 @@ export class Application {
   }
 
   async launch() {
-    // Pixi rasterizes text to textures, so wait for Quantico before any scene
-    // creates its labels. Quantico is vendored; fallback text indicates a
-    // broken local deployment and must be visible in diagnostics.
-    const loadQuantico = async (face) => {
+    // HTMLText renders within an SVG foreignObject. It cannot reliably use a
+    // face registered only by the document stylesheet, so register Quantico
+    // through Pixi's font loader before any HTMLText instance is created.
+    const loadQuantico = async (src, weight) => {
+      console.log("Loading game font from " + src);
       try {
-        await document.fonts.load(face);
+        await PIXI.Assets.load({
+          src,
+          data: { family: "Quantico", weights: [weight] },
+        });
       } catch (error) {
         console.error("[Fonts] Failed to load vendored Quantico face.", {
-          face,
+          src,
+          weight,
           error,
         });
         return;
       }
-      if (!document.fonts.check(face))
-        console.error("[Fonts] Vendored Quantico face is unavailable after loading.", {
-          face,
-        });
     };
     await Promise.all([
-      loadQuantico("400 16px Quantico"),
-      loadQuantico("700 16px Quantico"),
+      loadQuantico("./vendor/fonts/quantico-regular.ttf", "400"),
+      loadQuantico("./vendor/fonts/quantico-bold.ttf", "700"),
     ]);
     await loadMinoShaderSources();
     await this.applySkin(this.session.skin);

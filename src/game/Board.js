@@ -134,6 +134,8 @@ export class Board {
         this.set(x, y, {
           colorIndex: Number.isInteger(cell.colorIndex) ? cell.colorIndex : -1,
           material: cell.material || "default",
+          ...(cell.attachment ? { attachment: true } : {}),
+          ...(cell.defenseReward ? { defenseReward: true } : {}),
           baseColor: cell.baseColor ?? piece.color,
           godEssenceItemIndex: cell.godEssenceItemIndex,
           godEssencePolarity: cell.godEssencePolarity,
@@ -506,6 +508,7 @@ export class Board {
         colorIndex: colorMode && paletteSize ? Math.floor(random() * paletteSize) : -1,
         baseColor: 0x88909c,
         material: drop.material,
+        defenseReward: true,
         ...(drop.metalLives ? { metalLives: drop.metalLives } : {}),
         pieceId: `metal-drop-${Date.now()}-${index}`,
         visualLinks: { top: false, right: false, bottom: false, left: false },

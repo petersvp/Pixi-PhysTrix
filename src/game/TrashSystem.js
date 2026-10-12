@@ -160,7 +160,7 @@ export class TrashSystem {
   // Virus-style trash is deliberately sparse and spread through the usable
   // playfield rather than stacked at its bottom.  Very short fields retain a
   // two-row spawn buffer; normal fields retain four rows at the top.
-  scatteredCells() {
+  scatteredCells(requestedCount = null) {
     const level = Math.min(
       Math.min(MAX_TRASH_LEVEL, this.rows - 2),
       Math.max(0, Math.floor(Number(this.level) || 0)),
@@ -176,9 +176,13 @@ export class TrashSystem {
     );
     // Never author a full row during setup: as with the other trash modes,
     // progression must not immediately self-clear before the player acts.
+    const configuredCount = level * tilesPerLevel;
+    const requested = Number.isFinite(requestedCount)
+      ? Math.max(0, Math.floor(requestedCount))
+      : configuredCount;
     const count = Math.min(
       Math.max(0, (this.cols - 1) * spawnHeight),
-      level * tilesPerLevel,
+      requested,
     );
     // A partial Fisher-Yates shuffle selects unique locations without a retry
     // loop as the field becomes full.
@@ -295,8 +299,8 @@ export class TrashSystem {
     return cells;
   }
 
-  populateBoard(board) {
-    this.cells().forEach(({ x, y, colorIndex, baseColor, material, trashHp, broken, trash, bottomTrashTarget, normalTrash, visualLinks }) =>
+  populateBoard(board, cells = this.cells()) {
+    cells.forEach(({ x, y, colorIndex, baseColor, material, trashHp, broken, trash, bottomTrashTarget, normalTrash, visualLinks }) =>
       {
         // Item-created trash can replace a Grid tile.  Sever every adjacent
         // PM edge first so its survivor does not retain a false visual/logic

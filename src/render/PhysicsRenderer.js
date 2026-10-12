@@ -12,8 +12,10 @@ import {
   MARKED_MINO_GLOW_STRENGTH,
   MARKED_MINO_OUTLINE_LIGHTNESS,
 } from "../config/effectsConstants.js";
+import { CELL } from "../config/gameplayConstants.js";
 import { colorNumber } from "../config/colors.js";
 import { MinoQuadRenderer } from "./MinoQuadRenderer.js";
+import { AdvancedLineRenderer } from "./AdvancedLineRenderer.js";
 import { polyominoCentroid } from "../game/Polyomino.js";
 import { metalTint, normalTrashTint } from "./MetalTint.js";
 
@@ -47,6 +49,18 @@ const mixColor = (from, to, amount) => {
   return (mix(16) << 16) | (mix(8) << 8) | mix(0);
 };
 
+const godEssenceOutlineStyle = (atlas, itemIndex, polarity, foreign) => {
+  const price = Math.max(1, Math.min(5, Number(atlas?.itemPrices?.[itemIndex]) || 1));
+  const owned = polarity === "self" && !foreign;
+  if (!owned && !foreign) return null;
+  const highValue = price >= 4;
+  const negativeForeign = foreign && atlas?.itemPolarities?.[itemIndex] === "others";
+  const tints = atlas?.tints || {};
+  if (negativeForeign) return { price, highValue, color: colorNumber(tints.foreignNegativeOutline, 0xff9d9d) };
+  if (foreign) return { price, highValue, color: colorNumber(highValue ? tints.foreignPositiveHighOutline : tints.foreignPositiveOutline, highValue ? 0xffb300 : 0x00ff37) };
+  return { price, highValue, color: mixColor(colorNumber(tints.selfOutlineLow, 0x00ff37), colorNumber(tints.selfOutlineHigh, 0xffb300), (price - 1) / 4) };
+};
+
 const setBlindAlpha = (node, alpha, active) => {
   let filter = node.blindAlphaFilter;
   if (active && !filter) {
@@ -64,8 +78,9 @@ const setBlindAlpha = (node, alpha, active) => {
 };
 
 export class PhysicsRenderer {
-  constructor(layer, material, trashMaterial = material, specialMaterials = {}) {
+  constructor(layer, effectsLayer, material, trashMaterial = material, specialMaterials = {}) {
     this.layer = layer;
+    this.effectsLayer = effectsLayer;
     this.quads = new MinoQuadRenderer(material, { cellSize: 1 });
     this.trashQuads = new MinoQuadRenderer(trashMaterial, { cellSize: 1 });
     this.specialQuads = new Map(Object.entries(specialMaterials).map(([name, settings]) => [name, new MinoQuadRenderer(settings, { cellSize: 1 })]));
@@ -78,6 +93,7 @@ export class PhysicsRenderer {
     // as well; recreating meshes, shaders, and filters every ticker frame was
     // an unbounded allocation churn source during long physics sessions.
     this.bodyNodes = new Map();
+    this.godEssenceOutlineNodes = new Map();
     this.bodyData = new Map();
     this.markedNodes = new Map();
     this.palette = [];
@@ -90,6 +106,10 @@ export class PhysicsRenderer {
       ? color
       : Number.parseInt(String(color).replace("#", ""), 16));
     this.invalidateMaterial();
+  }
+
+  setEffectsRenderer(effects) {
+    this.effects = effects;
   }
 
   setTrashAppearance({ desaturation, damagedBrightness } = {}) {
@@ -132,7 +152,7 @@ export class PhysicsRenderer {
     this.invalidateMaterial();
   }
 
-  addGodEssenceOverlay(target, cells, itemIndex, polarity, foreign, centroid) {
+  addGodEssenceOverlay(target, cells, itemIndex, polarity, foreign, centroid, outlineTarget = target) {
     if (!this.godEssenceTexture || !Number.isInteger(itemIndex) || !cells.length) return;
     const atlas = this.godEssenceAtlas;
     const cell = atlas.itemCells?.[itemIndex];
@@ -162,6 +182,29 @@ export class PhysicsRenderer {
       : polarity === "others" ? colorNumber(tints.colorModeOthersIcon ?? tints.othersIcon, 0xffd9df) : colorNumber(tints.colorModeSelfIcon ?? tints.selfIcon, 0xd9ffe6);
     icon.position.set(0, 0);
     target.addChild(icon);
+    this.addSelfGodEssenceOutline(outlineTarget, cells, itemIndex, polarity, foreign, centroid);
+  }
+
+  addSelfGodEssenceOutline(target, cells, itemIndex, polarity, foreign, centroid) {
+    const style = godEssenceOutlineStyle(this.godEssenceAtlas, itemIndex, polarity, foreign);
+    if (!style || !Number.isInteger(itemIndex) || !cells.length) return;
+    const color = style.color;
+    const minX = Math.min(...cells.map((cell) => cell.x)) - centroid.x + 0.06;
+    const maxX = Math.max(...cells.map((cell) => cell.x)) - centroid.x + 0.94;
+    const minY = Math.min(...cells.map((cell) => cell.y)) - centroid.y + 0.06;
+    const maxY = Math.max(...cells.map((cell) => cell.y)) - centroid.y + 0.94;
+    new AdvancedLineRenderer({
+      texture: AdvancedLineRenderer.getFullParticleTexture(0.32),
+      tint: color,
+      leftWidth: 0.16,
+      rightWidth: 0.16,
+      alpha: 0.95,
+      closed: true,
+      name: "godEssenceSelfOutline",
+    }).draw(target, [
+      new PIXI.Point(minX, minY), new PIXI.Point(maxX, minY),
+      new PIXI.Point(maxX, maxY), new PIXI.Point(minX, maxY),
+    ]);
   }
 
   colorFor(cell, fallback) {
@@ -177,6 +220,7 @@ export class PhysicsRenderer {
 
   render(field) {
     const aliveBodies = new Set();
+    const godEssenceEmitters = [];
     field.bodies.forEach((body) => {
       aliveBodies.add(body);
       const data = body.GetUserData();
@@ -193,6 +237,12 @@ export class PhysicsRenderer {
       if (node.visualSignature !== signature) {
         const centroid = polyominoCentroid(data.cells);
         node.removeChildren().forEach((child) => child.destroy({ children: true }));
+        const oldOutline = this.godEssenceOutlineNodes.get(body);
+        oldOutline?.destroy({ children: true });
+        const outlineNode = new PIXI.Container();
+        outlineNode.label = `physicsGodEssenceItemOutline:${data.polyominoId ?? "untracked"}`;
+        this.godEssenceOutlineNodes.set(body, outlineNode);
+        this.effectsLayer?.addChild(outlineNode);
         const cells = data.cells.map((cell) => ({ ...cell, color: this.colorFor(cell, data.color) }));
         const groups = new Map();
         cells.forEach((cell) => {
@@ -215,6 +265,7 @@ export class PhysicsRenderer {
           data.cells[0]?.godEssencePolarity,
           data.cells[0]?.godEssenceForeign,
           centroid,
+          outlineNode,
         );
         node.visualSignature = signature;
       }
@@ -243,9 +294,42 @@ export class PhysicsRenderer {
       // therefore directly usable by a replay/network presentation layer.
       node.position.set(position.x, position.y);
       node.rotation = body.GetAngle();
+      const outlineNode = this.godEssenceOutlineNodes.get(body);
+      if (outlineNode) {
+        // effectsLayer is authored in pixels while physicsLayer is authored
+        // in normalized cell units. Keep the outline in the effects layer
+        // above minos, but preserve the body's exact transform.
+        outlineNode.position.set(node.position.x * CELL, node.position.y * CELL);
+        outlineNode.scale.set(CELL);
+        outlineNode.rotation = node.rotation;
+      }
+      const itemIndex = data.cells[0]?.godEssenceItemIndex;
+      const style = godEssenceOutlineStyle(this.godEssenceAtlas, itemIndex, data.cells[0]?.godEssencePolarity, data.cells[0]?.godEssenceForeign);
+      if (style?.highValue) {
+        const centroid = polyominoCentroid(data.cells);
+        const angle = node.rotation;
+        const cosine = Math.cos(angle);
+        const sine = Math.sin(angle);
+        data.cells.forEach((cell, index) => {
+          const localX = cell.x - centroid.x + 0.5;
+          const localY = cell.y - centroid.y + 0.5;
+          godEssenceEmitters.push({
+            id: `${data.polyominoId}:${cell.x}:${cell.y}:${index}`,
+            x: node.position.x + localX * cosine - localY * sine,
+            y: node.position.y + localX * sine + localY * cosine,
+            minX: node.position.x + localX - 0.42,
+            maxX: node.position.x + localX + 0.42,
+            minY: node.position.y + localY - 0.42,
+            maxY: node.position.y + localY + 0.42,
+            border: true,
+            color: style.color,
+          });
+        });
+      }
       this.renderMarkedBody(body, data, node, signature);
     });
     this.releaseRemovedBodies(aliveBodies);
+    this.effects?.setPersistentEmitters("physicsGodEssence", godEssenceEmitters);
     this.applyBlindPresentation();
   }
 
@@ -375,6 +459,11 @@ export class PhysicsRenderer {
       if (aliveBodies.has(body)) return;
       node.destroy({ children: true });
       this.markedNodes.delete(body);
+    });
+    this.godEssenceOutlineNodes.forEach((node, body) => {
+      if (aliveBodies.has(body)) return;
+      node.destroy({ children: true });
+      this.godEssenceOutlineNodes.delete(body);
     });
   }
 }

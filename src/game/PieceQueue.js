@@ -36,6 +36,8 @@ export class PieceQueue {
       ),
     );
     this.bag = [];
+    this.hasCompletedBag = false;
+    this.onBagCompleted = null;
     this.items = [];
     // Priority entries are gameplay-real next pieces, but deliberately stay
     // outside `items`: the renderer, replay queue snapshots, and opponents'
@@ -51,6 +53,10 @@ export class PieceQueue {
     // God Essence rewards intentionally never enter this queue: they are
     // separate, hidden priority entries and must remain their special O PM.
     this.materialQueue = [];
+    // Burden material effects apply to every PM generated while they remain
+    // active. Existing previews stay as authored; only newly pushed PMs are
+    // converted.
+    this.persistentMaterial = null;
   }
   addAttachments(count = 0) {
     const total = Math.max(0, Math.floor(Number(count) || 0));
@@ -163,6 +169,7 @@ export class PieceQueue {
         ? {
             ...mino,
             material,
+            ...(material === "metal" ? { defenseReward: true } : {}),
             ...(material === "metal" ? { metalLives: mino.metalLives ?? 3 } : {}),
           }
         : mino,
@@ -259,6 +266,7 @@ export class PieceQueue {
   }
   draw() {
     if (!this.bag.length) {
+      const bonusItem = this.hasCompletedBag ? this.onBagCompleted?.() : null;
       const source = this.roomRules?.bag
         ? roomBagGenerator(this.roomRules.bag, this.roomRules.physics?.materials, this.random)
         : this.preset
@@ -267,6 +275,10 @@ export class PieceQueue {
           ? bagGenerator(this.random)
           : bagGenerator;
       this.bag = shuffle(source, this.random);
+      this.hasCompletedBag = true;
+      // Refill before yielding the bonus, so one completed bag produces at
+      // most one random item and the following draw starts the fresh bag.
+      if (bonusItem) return bonusItem;
     }
     const definition = this.bag.pop();
     const chain = this.roomRules?.chain;
@@ -318,7 +330,7 @@ export class PieceQueue {
     // A material assignment is consumed only for a newly generated ordinary
     // PM. Hidden God Essence entries are returned by next()/peek() before
     // draw() and therefore never consume or inherit queue materials.
-    const material = this.materialQueue.shift();
+    const material = this.persistentMaterial || this.materialQueue.shift();
     if (material) this.applyMaterial(item, material);
     // Always return the authored item form. In non-colour modes it preserves
     // mino material metadata for queue previews, physics fixtures and board

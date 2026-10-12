@@ -40,6 +40,7 @@ uniform vec4 uBrokenEdgeOffset;
 uniform vec4 uBrokenDistortion;
 uniform vec4 uBrokenNoiseScale;
 uniform vec4 uBrokenSdfBlend;
+uniform vec4 uNoiseSceneUv;
 uniform vec4 uReflectionEnabled;
 uniform vec4 uReflectionOffset;
 uniform vec4 uReflectionDownsample;
@@ -528,7 +529,8 @@ void main(void) {
   float brokenField = brokenEdgeDistance - max(uBrokenEdgeOffset.x, 0.0);
   float brokenEdgeMask = 1.0 - smoothstep(0.0, brokenEdgeWidth, max(brokenField, 0.0));
   if (uBrokenDistortion.x > 0.0001 && brokenEdgeMask > 0.0) {
-    float noise = texture2D(uNoiseTexture, vSceneUv * max(uBrokenNoiseScale.x, 0.001)).r * 2.0 - 1.0;
+    vec2 noiseUv = uNoiseSceneUv.xy + vUv * uNoiseSceneUv.zw;
+    float noise = texture2D(uNoiseTexture, noiseUv * max(uBrokenNoiseScale.x, 0.001)).r * 2.0 - 1.0;
     brokenField -= noise * uBrokenDistortion.x * brokenEdgeWidth;
   }
   brokenEdgeMask = 1.0 - smoothstep(0.0, brokenEdgeWidth, max(brokenField, 0.0));

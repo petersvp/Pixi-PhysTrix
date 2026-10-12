@@ -60,6 +60,7 @@ import {
   HUD_PANEL_RADIUS,
   HUD_SIDE_WIDTH,
   HUD_STATS_RIGHT_PADDING,
+  HUD_STATS_TEXT_STABLE_WIDTH,
   HUD_STATS_CONTENT_HEIGHT,
   HUD_STATS_CURRENT_COLOR,
   HUD_STATS_CURRENT_FONT_SIZE,
@@ -139,9 +140,9 @@ export const createPlayfieldLayout = ({
   );
   const nextHeight = nextQueueSize
     ? NEXT_PREVIEW_Y +
-      (nextQueueSize - 1) * NEXT_SLOT_SPACING +
-      NEXT_PREVIEW_SLOT_HEIGHT +
-      NEXT_PANEL_BOTTOM_PADDING
+    (nextQueueSize - 1) * NEXT_SLOT_SPACING +
+    NEXT_PREVIEW_SLOT_HEIGHT +
+    NEXT_PANEL_BOTTOM_PADDING
     : 0;
   const nextDetached = nextHeight > scaledHeight;
   const holdDetached = HOLD_PANEL_HEIGHT > scaledHeight;
@@ -259,6 +260,7 @@ export class SinglePlayerHud {
     this.holdRenderer?.setGodEssenceAtlas(texture, atlas);
     this.nextRenderer?.setGodEssenceAtlas(texture, atlas);
     this.updateActiveGodEssenceEffect(this.activeGodEssenceItemIndex);
+    this.updateDefenseDisplay(this.defenseCount, this.defenseShieldItemIndex);
   }
 
   setGodEssencePresentation({ chromaticEchoAmount = 0, queueJamAmount = 0 } = {}) {
@@ -283,7 +285,7 @@ export class SinglePlayerHud {
     if (this.nextPanel) this.nextPanel.alpha = 1 - Math.max(0, Math.min(1, Number(queueJamAmount) || 0));
   }
 
-  updateActiveGodEssenceEffect(itemIndex = -1, remainingMs = 0) {
+  updateActiveGodEssenceEffect(itemIndex = -1, remainingMs = 0, burden = false) {
     this.activeGodEssenceItemIndex = itemIndex;
     const icon = this.activeGodEssenceEffectIcon;
     const atlasSource = this.godEssenceAtlas;
@@ -309,10 +311,44 @@ export class SinglePlayerHud {
     icon.blendMode = atlas.activeEffectIconBlendMode ?? "normal";
     icon.visible = true;
     if (this.activeGodEssenceEffectTime) {
+      this.activeGodEssenceEffectTime.style.fontSize = burden ? 12 : 22;
       const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
-      this.activeGodEssenceEffectTime.text = `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
+      this.activeGodEssenceEffectTime.text = burden
+        ? "BURDEN"
+        : `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
       this.activeGodEssenceEffectTime.visible = true;
     }
+  }
+
+  updateDefenseDisplay(defense = 0, itemIndex = -1) {
+    this.defenseCount = Math.max(0, Math.floor(Number(defense) || 0));
+    this.defenseShieldItemIndex = itemIndex;
+    const icon = this.defenseIcon;
+    const count = this.defenseText;
+    const atlasSource = this.godEssenceAtlas;
+    const cell = atlasSource?.atlas?.itemCells?.[itemIndex];
+    if (!this.defenseCount || !icon || !count || !atlasSource || !cell) {
+      if (icon) icon.visible = false;
+      if (count) count.visible = false;
+      return;
+    }
+    const atlas = atlasSource.atlas;
+    if (this.renderedDefenseShieldItemIndex !== itemIndex) {
+      icon.texture = new PIXI.Texture({
+        source: atlasSource.texture.source,
+        frame: new PIXI.Rectangle(
+          (cell.column - 1) * atlas.cellSize,
+          (cell.row - 1) * atlas.cellSize,
+          atlas.cellSize,
+          atlas.cellSize,
+        ),
+      });
+      this.renderedDefenseShieldItemIndex = itemIndex;
+    }
+    icon.blendMode = atlas.activeEffectIconBlendMode ?? "normal";
+    icon.visible = true;
+    count.text = `x${this.defenseCount}`;
+    count.visible = true;
   }
 
   drawPanelFrame(graphics, rect, outerSide = null) {
@@ -636,10 +672,32 @@ export class SinglePlayerHud {
     this.activeGodEssenceEffectTime.position.set(44, 150);
     this.activeGodEssenceEffectTime.visible = false;
     this.holdPanel.addChild(this.activeGodEssenceEffectIcon, this.activeGodEssenceEffectTime);
+    const DEFENSE_DISPLAY_Y_OFFSET = -170;
+    const DEFENSE_DISPLAY_X_OFFSET = 10;
+    this.defenseIcon = new PIXI.Sprite(PIXI.Texture.EMPTY);
+    this.defenseIcon.label = "defenseShieldIcon";
+    this.defenseIcon.anchor.set(0.5, 1);
+    this.defenseIcon.position.set(22 + DEFENSE_DISPLAY_X_OFFSET, 168 + DEFENSE_DISPLAY_Y_OFFSET);
+    this.defenseIcon.width = 36;
+    this.defenseIcon.height = 36;
+    this.defenseIcon.visible = false;
+    this.defenseText = new PIXI.Text({
+      text: "",
+      style: { fontFamily: "Quantico", fontSize: 22, fontWeight: "bold", fill: 0xffffff, stroke: { color: 0x06101d, width: 3 } },
+    });
+    this.defenseText.label = "defenseCount";
+    this.defenseText.anchor.set(0, 0.5);
+    this.defenseText.position.set(44 + DEFENSE_DISPLAY_X_OFFSET, 150 + DEFENSE_DISPLAY_Y_OFFSET);
+    this.defenseText.visible = false;
+    this.holdPanel.addChild(this.defenseIcon, this.defenseText);
 
     this.statsPanel = new PIXI.Container();
     this.statsPanel.label = "statisticsPanel";
     this.statsPanel.position.set(this.layout.stats.x, this.layout.stats.y);
+    const statsTextWidth = Math.min(
+      HUD_STATS_TEXT_STABLE_WIDTH,
+      this.layout.stats.width - HUD_STATS_RIGHT_PADDING,
+    );
     this.statsText = new PIXI.HTMLText({
       text: "",
       style: {
@@ -648,8 +706,19 @@ export class SinglePlayerHud {
         fontWeight: "bold",
         fill: HUD_STATS_LABEL_COLOR,
         align: "right",
+        // cssOverrides: `
+        //   .stat { min-width: ${statsTextWidth}px; text-align: right; line-height: ${HUD_STATS_GROUP_LINE_HEIGHT}px; margin-bottom: ${HUD_STATS_GROUP_GAP}px; }
+        //   .label { color: ${HUD_STATS_LABEL_COLOR}; font-size: ${HUD_STATS_LABEL_FONT_SIZE}px; }
+        //   .current { color: ${HUD_STATS_CURRENT_COLOR}; font-size: ${HUD_STATS_CURRENT_FONT_SIZE}px; }
+        //   .target { color: ${HUD_STATS_TARGET_COLOR}; font-size: ${HUD_STATS_TARGET_FONT_SIZE}px; }
+        //   .scoreTarget { color: ${HUD_STATS_TARGET_COLOR}; font-size: ${HUD_STATS_SCORE_TARGET_FONT_SIZE}px; }
+        //   .stat.completed .label { color: ${HUD_STATS_COMPLETED_LABEL_COLOR}; }
+        //   .stat.completed .current { color: ${HUD_STATS_COMPLETED_CURRENT_COLOR}; }
+        //   .stat.completed .target, .stat.completed .scoreTarget { color: ${HUD_STATS_COMPLETED_TARGET_COLOR}; }
+        // `,
+
         cssOverrides: `
-          .stat { line-height: ${HUD_STATS_GROUP_LINE_HEIGHT}px; margin-bottom: ${HUD_STATS_GROUP_GAP}px; }
+          .stat { min-width: ${statsTextWidth}px; text-align: right; line-height: ${HUD_STATS_GROUP_LINE_HEIGHT}px; margin-bottom: ${HUD_STATS_GROUP_GAP}px; }
           .label { color: ${HUD_STATS_LABEL_COLOR}; font-size: ${HUD_STATS_LABEL_FONT_SIZE}px; }
           .current { color: ${HUD_STATS_CURRENT_COLOR}; font-size: ${HUD_STATS_CURRENT_FONT_SIZE}px; }
           .target { color: ${HUD_STATS_TARGET_COLOR}; font-size: ${HUD_STATS_TARGET_FONT_SIZE}px; }
@@ -658,6 +727,7 @@ export class SinglePlayerHud {
           .stat.completed .current { color: ${HUD_STATS_COMPLETED_CURRENT_COLOR}; }
           .stat.completed .target, .stat.completed .scoreTarget { color: ${HUD_STATS_COMPLETED_TARGET_COLOR}; }
         `,
+
         tagStyles: {
           ".stat": {
             lineHeight: HUD_STATS_GROUP_LINE_HEIGHT,
@@ -779,9 +849,9 @@ export class SinglePlayerHud {
         }),
       ];
       section
-        .roundRect(x, sectionY-1, sectionWidth, sectionHeight+2, 2)
+        .roundRect(x, sectionY - 1, sectionWidth, sectionHeight + 2, 2)
         .fill({ color, alpha: 0.7 })
-        .roundRect(x-1, sectionY-2, sectionWidth+2, sectionHeight+4, 3)
+        .roundRect(x - 1, sectionY - 2, sectionWidth + 2, sectionHeight + 4, 3)
         .stroke({ width: 2, color: outlineColor, alpha: 0.95 });
       itemSections.addChild(section);
       cursor += width;
@@ -1062,10 +1132,10 @@ export class SinglePlayerHud {
     const height = Math.max(
       GAME_OVER_PANEL_MIN_HEIGHT,
       154 +
-        rows.length * GAME_OVER_PANEL_ROW_HEIGHT +
-        GAME_OVER_PANEL_PADDING +
-        GAME_OVER_PLAY_AGAIN_GAP +
-        GAME_OVER_PLAY_AGAIN_HEIGHT,
+      rows.length * GAME_OVER_PANEL_ROW_HEIGHT +
+      GAME_OVER_PANEL_PADDING +
+      GAME_OVER_PLAY_AGAIN_GAP +
+      GAME_OVER_PLAY_AGAIN_HEIGHT,
     );
     const panel = new PIXI.Container();
     panel.label = "gameOverPanel";
@@ -1194,14 +1264,14 @@ export class SinglePlayerHud {
     buttonLabel.position.set(0, buttonY + GAME_OVER_PLAY_AGAIN_HEIGHT / 2);
     playAgain.addChild(buttonFace, animateText(buttonLabel));
     const actionShadow = new PIXI.filters.DropShadowFilter({
-        color: "#00aa00",
-        alpha: 0.7,
-        blur: 6,
-        distance: 4,
-        rotation: 90,
-        quality: 4,
-        padding: 16,
-      });
+      color: "#00aa00",
+      alpha: 0.7,
+      blur: 6,
+      distance: 4,
+      rotation: 90,
+      quality: 4,
+      padding: 16,
+    });
     playAgain.filters = [actionShadow];
     playAgain.on("pointertap", (event) => {
       event.stopPropagation?.();
@@ -1281,7 +1351,7 @@ export class SinglePlayerHud {
     }
     if (label) action.buttonLabel.text = label;
     const buttonY = insidePanel
-      ? this.gameOverPanelHeight / 2 - GAME_OVER_PLAY_AGAIN_HEIGHT - GAME_OVER_PANEL_PADDING 
+      ? this.gameOverPanelHeight / 2 - GAME_OVER_PLAY_AGAIN_HEIGHT - GAME_OVER_PANEL_PADDING
       : this.gameOverActionOutsideButtonY;
     action.buttonLabel.y = buttonY + GAME_OVER_PLAY_AGAIN_HEIGHT / 2;
     action.buttonLabel.style.fill = textColor;
@@ -1390,8 +1460,8 @@ export class SinglePlayerHud {
     const y =
       this.overlayLayout.y +
       Math.max(2, Math.min(this.overlayLayout.rows - 2, row)) *
-        this.overlayLayout.cell *
-        this.overlayLayout.scale;
+      this.overlayLayout.cell *
+      this.overlayLayout.scale;
     const clearName = `${chainName(lines)}${extraMinos > 0 ? `+${extraMinos}` : ""}!`;
     const primary = allClear
       ? "PERFECT\nCLEAR!!!"
@@ -1445,7 +1515,7 @@ export class SinglePlayerHud {
         text.alpha = eased;
         text.scale.set(
           GAME_OVER_TEXT_ENTER_START_SCALE +
-            (1 - GAME_OVER_TEXT_ENTER_START_SCALE) * eased,
+          (1 - GAME_OVER_TEXT_ENTER_START_SCALE) * eased,
         );
         if (amount < 1) complete = false;
       });
@@ -1473,7 +1543,7 @@ export class SinglePlayerHud {
       const channel = (shift) =>
         Math.round(
           ((gold >> shift) & 0xff) * (1 - pulse) +
-            ((green >> shift) & 0xff) * pulse,
+          ((green >> shift) & 0xff) * pulse,
         );
       this.calloutMain.style.fill =
         (channel(16) << 16) | (channel(8) << 8) | channel(0);
@@ -1505,6 +1575,9 @@ export class SinglePlayerHud {
     godEssenceReady = false,
     activeGodEssenceItemIndex = -1,
     activeGodEssenceRemainingMs = 0,
+    activeGodEssenceBurden = false,
+    defense = 0,
+    defenseShieldItemIndex = -1,
   }) {
     // Callers that deliberately have no objectives may pass null. Normalize it
     // here so the HUD always treats that as an empty objective set.
@@ -1514,7 +1587,8 @@ export class SinglePlayerHud {
     this.holdPanel.eventMode = showHold ? "static" : "none";
     this.nextPanel.visible = showQueue;
     this.updateGodEssenceWallet(godEssenceWallet, godEssenceActive, godEssenceReady);
-    this.updateActiveGodEssenceEffect(activeGodEssenceItemIndex, activeGodEssenceRemainingMs);
+    this.updateActiveGodEssenceEffect(activeGodEssenceItemIndex, activeGodEssenceRemainingMs, activeGodEssenceBurden);
+    this.updateDefenseDisplay(defense, defenseShieldItemIndex);
     const totalSeconds = Math.floor(elapsedMs / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = String(totalSeconds % 60).padStart(2, "0");

@@ -30,6 +30,7 @@ export const createMinoShader = (
   color,
   links,
   shaderSettings = defaultShaderSettings,
+  noiseSceneUv = [0, 0, 0, 0],
 ) => {
   const source = getMinoShaderSources();
   const adjacencyKey = [
@@ -46,7 +47,8 @@ export const createMinoShader = (
     links.broken?.top ? 1 : 0,
     links.broken?.bottom ? 1 : 0,
   ].join("");
-  const cacheKey = `${color}:${adjacencyKey}`;
+  const noiseKey = noiseSceneUv.map((value) => Number(value).toFixed(6)).join(":");
+  const cacheKey = `${color}:${adjacencyKey}:${noiseKey}`;
   const shaderCache = cacheFor(shaderSettings);
   if (shaderCache.has(cacheKey)) return shaderCache.get(cacheKey);
 
@@ -108,6 +110,10 @@ export const createMinoShader = (
     uBrokenDistortion: vec4(shaderSettings.brokenDistortion),
     uBrokenNoiseScale: vec4(shaderSettings.brokenNoiseScale),
     uBrokenSdfBlend: vec4(shaderSettings.brokenSdfBlend),
+    // This comes from the logical mino position, not Pixi's world matrix.
+    // Parent filters are allowed to render through a temporary target and may
+    // alter that matrix, which must never make a fracture texture crawl.
+    uNoiseSceneUv: vec4(new Float32Array(noiseSceneUv)),
     uReflectionEnabled: vec4(shaderSettings.reflectionEnabled),
     uReflectionOffset: vec4(shaderSettings.reflectionOffset),
     uReflectionDownsample: vec4(shaderSettings.reflectionDownsample),

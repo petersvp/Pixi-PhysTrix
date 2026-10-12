@@ -65,6 +65,18 @@ const mixColor = (from, to, amount) => {
   return (mix(16) << 16) | (mix(8) << 8) | mix(0);
 };
 
+const godEssenceOutlineStyle = (atlas, itemIndex, polarity, foreign) => {
+  const price = Math.max(1, Math.min(5, Number(atlas?.itemPrices?.[itemIndex]) || 1));
+  const owned = polarity === "self" && !foreign;
+  if (!owned && !foreign) return null;
+  const highValue = price >= 4;
+  const negativeForeign = foreign && atlas?.itemPolarities?.[itemIndex] === "others";
+  const tints = atlas?.tints || {};
+  if (negativeForeign) return { price, highValue, color: colorNumber(tints.foreignNegativeOutline, 0xff9d9d) };
+  if (foreign) return { price, highValue, color: colorNumber(highValue ? tints.foreignPositiveHighOutline : tints.foreignPositiveOutline, highValue ? 0xffb300 : 0x00ff37) };
+  return { price, highValue, color: mixColor(colorNumber(tints.selfOutlineLow, 0x00ff37), colorNumber(tints.selfOutlineHigh, 0xffb300), (price - 1) / 4) };
+};
+
 const setBlindAlpha = (node, alpha, active) => {
   let filter = node.blindAlphaFilter;
   if (active && !filter) {
@@ -87,6 +99,7 @@ export class BoardRenderer {
     minoGraphics,
     glowLayer,
     frameLayer,
+    effectsLayer,
     material,
     trashMaterial = material,
     cols = COLS,
@@ -102,6 +115,7 @@ export class BoardRenderer {
     this.graphics = minoGraphics;
     this.glowLayer = glowLayer;
     this.frameLayer = frameLayer;
+    this.effectsLayer = effectsLayer;
     this.background.label = "playfieldGrid";
     this.graphics.label = "classicMinoLayer";
     this.glowLayer.label = "playfieldGlowUnderlay";
@@ -122,6 +136,16 @@ export class BoardRenderer {
     this.ghostLayer.label = "classicGhostLayer";
     this.activeLayer = new PIXI.Container();
     this.activeLayer.label = "classicActiveMinoLayer";
+    // Item outlines are feedback, not mino material. Keep them in the same
+    // top-level effects space as particles so no ordinary mino can cover them.
+    this.settledGodEssenceOutlineLayer = new PIXI.Container();
+    this.settledGodEssenceOutlineLayer.label = "settledGodEssenceItemOutlines";
+    this.activeGodEssenceOutlineLayer = new PIXI.Container();
+    this.activeGodEssenceOutlineLayer.label = "activeGodEssenceItemOutlines";
+    this.effectsLayer?.addChild(
+      this.settledGodEssenceOutlineLayer,
+      this.activeGodEssenceOutlineLayer,
+    );
     this.graphics.addChild(
       this.settledLayer,
       this.markedLayer,
@@ -142,6 +166,33 @@ export class BoardRenderer {
       : Number.parseInt(String(color).replace("#", ""), 16));
     this.lastBoardSignature = null;
     this.lastActiveSignature = null;
+  }
+
+  setEffectsRenderer(effects) {
+    this.effects = effects;
+  }
+
+  updateGodEssenceEmitters(owner, cells, itemIndex, polarity, foreign) {
+    const style = godEssenceOutlineStyle(this.godEssenceAtlas, itemIndex, polarity, foreign);
+    if (!style?.highValue) {
+      this.effects?.setPersistentEmitters(owner, []);
+      return;
+    }
+    const minX = Math.min(...cells.map((cell) => cell.x)) + 0.08;
+    const maxX = Math.max(...cells.map((cell) => cell.x)) + 0.92;
+    const minY = Math.min(...cells.map((cell) => cell.renderY ?? cell.y)) + 0.08;
+    const maxY = Math.max(...cells.map((cell) => cell.renderY ?? cell.y)) + 0.92;
+    this.effects?.setPersistentEmitters(owner, [{
+      id: `${itemIndex}:${minX}:${minY}`,
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+      minX,
+      maxX,
+      minY,
+      maxY,
+      border: true,
+      color: style.color,
+    }]);
   }
 
   setTrashAppearance({ desaturation, damagedBrightness } = {}) {
@@ -186,7 +237,7 @@ export class BoardRenderer {
     this.lastActiveSignature = null;
   }
 
-  addGodEssenceOverlay(target, cells, itemIndex, polarity, foreign = false, showItemName = false) {
+  addGodEssenceOverlay(target, cells, itemIndex, polarity, foreign = false, showItemName = false, outlineTarget = target) {
     if (!this.godEssenceTexture || !Number.isInteger(itemIndex) || !cells.length) return;
     const atlas = this.godEssenceAtlas;
     const cell = atlas.itemCells?.[itemIndex];
@@ -217,6 +268,7 @@ export class BoardRenderer {
       : !tintIcons ? 0xffffff
       : polarity === "others" ? colorNumber(tints.colorModeOthersIcon ?? tints.othersIcon, 0xffd9df) : colorNumber(tints.colorModeSelfIcon ?? tints.selfIcon, 0xd9ffe6);
     target.addChild(icon);
+    this.addSelfGodEssenceOutline(outlineTarget, cells, itemIndex, polarity, foreign);
     if (showItemName && cells[0]?.godEssenceItemName) {
       const label = new PIXI.Text({
         text: String(cells[0].godEssenceItemName).toUpperCase(),
@@ -227,6 +279,28 @@ export class BoardRenderer {
       target.addChild(label);
     }
     return icon;
+  }
+
+  addSelfGodEssenceOutline(target, cells, itemIndex, polarity, foreign) {
+    const style = godEssenceOutlineStyle(this.godEssenceAtlas, itemIndex, polarity, foreign);
+    if (!style || !Number.isInteger(itemIndex) || !cells.length) return;
+    const color = style.color;
+    const minX = Math.min(...cells.map((cell) => cell.x)) * CELL + 2;
+    const maxX = (Math.max(...cells.map((cell) => cell.x)) + 1) * CELL - 2;
+    const minY = Math.min(...cells.map((cell) => cell.renderY ?? cell.y)) * CELL + 2;
+    const maxY = (Math.max(...cells.map((cell) => cell.renderY ?? cell.y)) + 1) * CELL - 2;
+    new AdvancedLineRenderer({
+      texture: AdvancedLineRenderer.getFullParticleTexture(12),
+      tint: color,
+      leftWidth: 5,
+      rightWidth: 5,
+      alpha: 1,
+      closed: true,
+      name: "godEssenceSelfOutline",
+    }).draw(target, [
+      new PIXI.Point(minX, minY), new PIXI.Point(maxX, minY),
+      new PIXI.Point(maxX, maxY), new PIXI.Point(minX, maxY),
+    ]);
   }
 
   colorFor(cell, fallback) {
@@ -530,9 +604,12 @@ export class BoardRenderer {
       this.lastBoardSignature = boardSignature;
       clearLayer(this.settledLayer);
       clearLayer(this.markedLayer);
+      clearLayer(this.settledGodEssenceOutlineLayer);
+      this.updateGodEssenceEmitters("settledGodEssence", [], -1, "none", false);
       // Group tiles by piece identity so each connected block is drawn once, even when
       // multiple cells share the same piece metadata.
       const groups = new Map();
+      const settledGodEssenceEmitters = [];
       board.forEachCell((tile, x, y) => {
         const groupKey = `${tile.pieceId}:${tile.material || "default"}`;
         const group = groups.get(groupKey) || {
@@ -573,9 +650,30 @@ export class BoardRenderer {
           group.cells[0]?.godEssenceItemIndex,
           group.cells[0]?.godEssencePolarity,
           group.cells[0]?.godEssenceForeign,
+          false,
+          this.settledGodEssenceOutlineLayer,
         );
         if (icon) icon.blindSeed = group.blindSeed;
+        const style = godEssenceOutlineStyle(this.godEssenceAtlas, group.cells[0]?.godEssenceItemIndex, group.cells[0]?.godEssencePolarity, group.cells[0]?.godEssenceForeign);
+        if (style?.highValue) {
+          const minX = Math.min(...group.cells.map((cell) => cell.x)) + 0.08;
+          const maxX = Math.max(...group.cells.map((cell) => cell.x)) + 0.92;
+          const minY = Math.min(...group.cells.map((cell) => cell.renderY ?? cell.y)) + 0.08;
+          const maxY = Math.max(...group.cells.map((cell) => cell.renderY ?? cell.y)) + 0.92;
+          settledGodEssenceEmitters.push({
+            id: `${groupKey}:${minX}:${minY}`,
+            x: (minX + maxX) / 2,
+            y: (minY + maxY) / 2,
+            minX,
+            maxX,
+            minY,
+            maxY,
+            border: true,
+            color: style.color,
+          });
+        }
       });
+      this.effects?.setPersistentEmitters("settledGodEssence", settledGodEssenceEmitters);
       // Marked classic rows use the same light, outline-only clear treatment as
       // physics minos. The material remains visible under the temporary glow.
       const markedGroups = new Map();
@@ -622,8 +720,13 @@ export class BoardRenderer {
     this.lastActiveSignature = activeSignature;
     clearLayer(this.ghostLayer);
     clearLayer(this.activeLayer);
-    if (!piece) return;
+    clearLayer(this.activeGodEssenceOutlineLayer);
+    if (!piece) {
+      this.updateGodEssenceEmitters("activeGodEssence", [], -1, "none", false);
+      return;
+    }
     if (activeAsGhost) {
+      this.updateGodEssenceEmitters("activeGodEssence", [], -1, "none", false);
       // Mino material shaders do not expose a reliable global opacity control.
       // During a physics resolve, replace the visible active material with an
       // ordinary Pixi outline and hide the landing ghost altogether.
@@ -674,6 +777,14 @@ export class BoardRenderer {
       piece.godEssencePolarity,
       Boolean(piece.godEssenceForeign),
       true,
+      this.activeGodEssenceOutlineLayer,
+    );
+    this.updateGodEssenceEmitters(
+      "activeGodEssence",
+      linkedActiveCells,
+      piece.godEssenceItemIndex,
+      piece.godEssencePolarity,
+      Boolean(piece.godEssenceForeign),
     );
     if (feedback?.remainingMs > 0) {
       const icon = this.addGodEssenceOverlay(
@@ -683,6 +794,7 @@ export class BoardRenderer {
         "others",
         false,
         false,
+        this.activeGodEssenceOutlineLayer,
       );
       if (icon) {
         const progress = 1 - feedback.remainingMs / 300;

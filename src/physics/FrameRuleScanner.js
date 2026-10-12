@@ -34,11 +34,13 @@ export class FrameRuleScanner {
     this.clusterIds = new WeakMap();
     this.nextColorGroupId = 1;
     this.pendingChainBreak = false;
+    this.chainBreakActive = false;
     this.catalystActive = false;
     this.chainsEnabled = true;
     this.lineSeals = [];
   }
   armChainBreak() { this.pendingChainBreak = true; }
+  setChainBreakActive(active) { this.chainBreakActive = Boolean(active); }
   setCatalystActive(active) { this.catalystActive = Boolean(active); }
   setChainsEnabled(enabled) { this.chainsEnabled = Boolean(enabled); }
   setLineSeals(seals = []) { this.lineSeals = Array.isArray(seals) ? seals : []; }
@@ -75,7 +77,7 @@ export class FrameRuleScanner {
     const groups = [];
     if (this.chain.mode === "color-lines") {
       const minimum = Math.max(2, Number(this.chain.colorLineLength) || 2);
-      const effectiveMinimum = Math.max(2, minimum - (this.pendingChainBreak ? 1 : 0));
+      const effectiveMinimum = Math.max(2, minimum - ((this.pendingChainBreak || this.chainBreakActive) ? 1 : 0));
       const directions = [
         ...(this.chain.horizontal ? [[1, 0]] : []),
         ...(this.chain.vertical ? [[0, 1]] : []),
@@ -113,7 +115,7 @@ export class FrameRuleScanner {
       }));
     } else if (this.chain.mode === "color-clusters") {
       const minimum = Math.max(2, Number(this.chain.clusterSize) || 17);
-      const effectiveMinimum = Math.max(2, minimum - (this.pendingChainBreak ? 4 : 0));
+      const effectiveMinimum = Math.max(2, minimum - ((this.pendingChainBreak || this.chainBreakActive) ? 4 : 0));
       const visited = new Set();
       cells.forEach((cell, key) => {
         if (visited.has(key)) return;
@@ -155,7 +157,8 @@ export class FrameRuleScanner {
     if (force) this.frame = 0;
     else if (++this.frame % FRAMERULE_INTERVAL) return null;
     this.lastBlockedCells = [];
-    if (!this.chainsEnabled) return [];
+    this.lastNoChainsCells = [];
+    const noChains = !this.chainsEnabled;
     if (["color-lines", "color-clusters"].includes(this.chain.mode)) {
       const rawRows = this.lineSeals.length ? this.colorMatches(true) : [];
       const rows = this.colorMatches();
@@ -163,6 +166,13 @@ export class FrameRuleScanner {
         .flatMap((row) => row.cells || [])
         .filter((cell) => this.isSealedRow(cell.y));
       this.pendingChainBreak = false;
+      if (noChains) {
+        // Preserve the raw match solely for presentation. It must never enter
+        // the vanish pipeline while No Chains is active.
+        this.lastNoChainsCells = [...rows, ...rawRows]
+          .flatMap((row) => row.cells || []);
+        return [];
+      }
       return rows;
     }
     const M = this.api.Common.Math,
@@ -193,7 +203,7 @@ export class FrameRuleScanner {
       const verticalSpread = centers.length
         ? globalThis.Math.max(...centers) - globalThis.Math.min(...centers)
         : 0;
-      const tolerance = this.pendingChainBreak ? this.rows : this.verticalTolerance;
+      const tolerance = (this.pendingChainBreak || this.chainBreakActive) ? this.rows : this.verticalTolerance;
       const requiredTiles = this.cols - (this.catalystActive ? 1 : 0);
       if (hit.size >= requiredTiles && verticalSpread <= tolerance) {
         const perfect =
@@ -229,6 +239,13 @@ export class FrameRuleScanner {
       }
     }
     this.pendingChainBreak = false;
+    if (noChains) {
+      // Sealed and otherwise valid lines are both rejected by No Chains, but
+      // both should receive the same rejected-mino feedback.
+      this.lastNoChainsCells = [...rows, ...this.lastBlockedCells]
+        .flatMap((row) => row.cells || []);
+      return [];
+    }
     return rows;
   }
 }

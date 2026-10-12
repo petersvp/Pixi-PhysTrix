@@ -141,6 +141,7 @@ export const HUD_STATS_COMPLETED_LABEL_COLOR = "#89d86c";
 export const HUD_STATS_COMPLETED_TARGET_COLOR = "#4f8c55";
 export const HUD_STATS_GROUP_LINE_HEIGHT = 24;
 export const HUD_STATS_GROUP_GAP = 12;
+export const HUD_STATS_TEXT_STABLE_WIDTH = 500;
 export const HUD_LIVES_FONT_SIZE = 18;
 export const HUD_LIVES_Y_OFFSET = -28;
 export const HUD_STATS_RIGHT_PADDING = 30;

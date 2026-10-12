@@ -191,7 +191,7 @@ export class PhysicsGameplay extends GameplayContract {
     const cells = piece.cells().filter((cell) => cell.y >= 0);
     this.physics.destroyControlled();
     const lockedBodies = this.physics.lock(piece) || [];
-    game.completeGodEssenceLock();
+    game.completeGodEssenceLock(piece);
     this.minoDropsAfterScan = true;
     if (hardDrop)
       lockedBodies.forEach((body) => this.physics.beginHardDropMass(body));
@@ -202,8 +202,10 @@ export class PhysicsGameplay extends GameplayContract {
         PLACEMENT_OUTLINE_PARTICLE_COUNT,
       );
     if (scanImmediately) {
+      this.physics.setChainBreakActive(game.hasGodEssencePassiveEffect("chain-break"));
       this.physics.setChainsEnabled(!game.hasGodEssencePassiveEffect("no-chains"));
       const scan = this.physics.scanImmediately();
+      game.notifyNoChainsBlocked?.(scan.noChainsCells);
       // This lock already received its post-lock scan, so do not let a later
       // periodic scan incorrectly reset the combo while its vanish resolves.
       if (!scan.rows.length) {
@@ -288,6 +290,7 @@ export class PhysicsGameplay extends GameplayContract {
   destroyGodEssenceTiles(game, entries) {
     const destroyed = this.physics.destroyTiles(entries);
     if (!destroyed.length) return false;
+    game.collectDefenseFromDestroyedTiles(destroyed);
     game.consumePhysicsGodEssenceItems(destroyed);
     game.collectGodGems(destroyed);
     game.score += destroyed.length * guidelineScore(1, game.level);
@@ -344,6 +347,7 @@ export class PhysicsGameplay extends GameplayContract {
     // it is, but do not resync it from player input until the vanish finishes.
     if (!this.isControlFrozen() && game.active)
       this.physics.syncControlled(game.active, ms);
+    this.physics.setChainBreakActive(game.hasGodEssencePassiveEffect("chain-break"));
     this.physics.setCatalystActive(game.hasGodEssencePassiveEffect("catalyst"));
     this.physics.setChainsEnabled(!game.hasGodEssencePassiveEffect("no-chains"));
     this.physics.setLineSeals(game.lineSeals);
@@ -365,7 +369,10 @@ export class PhysicsGameplay extends GameplayContract {
       });
     }
     const result = this.physics.step(ms);
-    game.notifyLineSealBlocked?.(result.blockedCells);
+    if (game.hasGodEssencePassiveEffect("no-chains"))
+      game.notifyNoChainsBlocked?.(result.noChainsCells);
+    else
+      game.notifyLineSealBlocked?.(result.blockedCells);
     if (result.damagedMetal?.length)
       game.emitAudioEvent("metalDamage", { tiles: result.damagedMetal });
     if (this.minoDropsAfterScan && result.scanned)
@@ -433,6 +440,7 @@ export class PhysicsGameplay extends GameplayContract {
       });
     }
     const vanished = result.vanished;
+    game.collectDefenseFromDestroyedTiles(vanished);
     game.collectGodGems(vanished);
     if (!vanished.length) return;
     // A seal is consumed only by a completed outside clear. Marking is just
@@ -540,7 +548,14 @@ export class PhysicsGameplay extends GameplayContract {
     const selectedAttack = attacks.length > 1
       ? attacks[Math.floor(game.queueRandom() * attacks.length)]
       : attacks[0];
-    if (selectedAttack) game.onAttack?.({ ...selectedAttack, source: game });
+    if (selectedAttack && game.onAttack) {
+      game.awardAttackDefense(selectedAttack.value, lines);
+      game.onAttack({
+        ...selectedAttack,
+        source: game,
+        vaporizedCells: vanished.map(({ x, y }) => ({ x, y })),
+      });
+    }
     if (this.combo >= (Number(game.session?.roomRules?.win?.comboLength) || Infinity))
       game.goalProgress.combos += 1;
     if (lines >= (Number(game.session?.roomRules?.win?.chainLength) || Infinity))

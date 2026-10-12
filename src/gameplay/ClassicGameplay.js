@@ -211,7 +211,15 @@ export class ClassicGameplay extends GameplayContract {
     return true;
   }
   fractureGodEssenceTiles(game, cells) {
-    return game.board.disconnectCells(cells, this.gravityType(game)).length > 0;
+    const fractured = game.board.disconnectCells(cells, this.gravityType(game)).length > 0;
+    if (fractured)
+      game.godEssenceBoardMutationEpoch = (game.godEssenceBoardMutationEpoch || 0) + 1;
+    // disconnectCells has already assigned clustered destinations and their
+    // renderY origins. Keep gameplay in its normal fall resolver so that
+    // visual motion completes before another scan/spawn can replace it.
+    if (fractured && this.gravityType(game) === "clustered")
+      this.resolve = { phase: "fall", initialScan: false };
+    return fractured;
   }
 
   lock(game) {
@@ -227,7 +235,7 @@ export class ClassicGameplay extends GameplayContract {
     );
     const partCount = game.board.lock(piece);
     this.resolveMaterialBreaks(game);
-    game.completeGodEssenceLock();
+    game.completeGodEssenceLock(piece);
     game.active = null;
     this.pendingSpin = spin;
     this.pendingSpinOrder = piece.order;
@@ -274,19 +282,25 @@ export class ClassicGameplay extends GameplayContract {
     // is deliberately centralized at the next chain scan, so bombs, electric
     // clears, material breaks, and ordinary line clears all agree.
     if (this.beginTrashUpIfCleared(game, true)) return true;
+    const chainRules = game.session?.roomRules?.chain || {};
     if (game.hasGodEssencePassiveEffect("no-chains")) {
+      const groups = findColorChainGroups(game.board, chainRules);
+      const rows = chainRules.mode === "lines-out"
+        ? game.board.findFullLines(game.hasGodEssencePassiveEffect("catalyst") ? 1 : 0)
+          .flatMap((y) => Array.from({ length: game.board.cols }, (_unused, x) => ({ x, y })))
+        : [];
+      game.notifyNoChainsBlocked([...groups.flatMap((group) => group.cells), ...rows]);
       this.resolve = null;
       if (spawn) game.spawn();
       return false;
     }
-    const chainRules = game.session?.roomRules?.chain || {};
-    const chainBreak = game.pendingGodEssenceChainBreak;
+    const chainBreak = game.pendingGodEssenceChainBreak || game.hasGodEssencePassiveEffect("chain-break");
     const scanRules = chainBreak
       ? {
-          ...chainRules,
-          ...(chainRules.mode === "color-lines" ? { chainBreakLineReduction: 1 } : {}),
-          ...(chainRules.mode === "color-clusters" ? { chainBreakClusterReduction: 4 } : {}),
-        }
+        ...chainRules,
+        ...(chainRules.mode === "color-lines" ? { chainBreakLineReduction: 1 } : {}),
+        ...(chainRules.mode === "color-clusters" ? { chainBreakClusterReduction: 4 } : {}),
+      }
       : chainRules;
     // First inspect the unsealed board for feedback only. A would-be chain
     // touching a seal pulses once, then the real pass below treats that area
@@ -318,7 +332,7 @@ export class ClassicGameplay extends GameplayContract {
       ? game.board.findFullLines(game.hasGodEssencePassiveEffect("catalyst") ? 1 : 0)
         .filter((y) => !game.isLineSealed(0, y))
       : [];
-    if (chainBreak && ["color-lines", "color-clusters"].includes(chainRules.mode))
+    if (game.pendingGodEssenceChainBreak && ["color-lines", "color-clusters"].includes(chainRules.mode))
       game.pendingGodEssenceChainBreak = false;
     if (rows.length || colorCells.length) {
       game.consumeLineSealsForMatch();
@@ -402,11 +416,11 @@ export class ClassicGameplay extends GameplayContract {
     const pointsAwarded =
       (spin
         ? guidelineSpinScore(
-            spin,
-            Math.min(3, lines),
-            game.level,
-            this.pendingSpinOrder,
-          )
+          spin,
+          Math.min(3, lines),
+          game.level,
+          this.pendingSpinOrder,
+        )
         : guidelineScore(Math.min(4, lines), game.level)) +
       guidelineComboScore(game.classicCombo, game.level) +
       (allClear ? guidelineAllClearScore(lines, game.level) : 0);
@@ -444,7 +458,14 @@ export class ClassicGameplay extends GameplayContract {
     const selectedAttack = attacks.length > 1
       ? attacks[Math.floor(game.queueRandom() * attacks.length)]
       : attacks[0];
-    if (selectedAttack) game.onAttack?.({ ...selectedAttack, source: game });
+    if (selectedAttack && game.onAttack) {
+      game.awardAttackDefense(selectedAttack.value, lines);
+      game.onAttack({
+        ...selectedAttack,
+        source: game,
+        vaporizedCells: (clearedTiles || []).map(({ x, y }) => ({ x, y })),
+      });
+    }
     game.updateSpeed();
     if (game.classicCombo >= (Number(game.session?.roomRules?.win?.comboLength) || Infinity))
       game.goalProgress.combos += 1;
@@ -469,18 +490,18 @@ export class ClassicGameplay extends GameplayContract {
     const primary = trashUp
       ? "TRASH\nUP!"
       : allClear
-      ? "PERFECT\nCLEAR!!!"
-      : [spin, clearName].filter(Boolean).join(" ");
+        ? "PERFECT\nCLEAR!!!"
+        : [spin, clearName].filter(Boolean).join(" ");
     game.playfield.hud.showScoringCallout(primary, {
       combo: game.classicCombo,
       points: pointsAwarded,
       color: trashUp
         ? TRASH_UP_CALLOUT_COLOR
         : spin
-        ? COLORS.SPIN_TEXT
-        : lines >= 4
-          ? COLORS.MAJOR_CLEAR_TEXT
-          : COLORS.CLEAR_TEXT,
+          ? COLORS.SPIN_TEXT
+          : lines >= 4
+            ? COLORS.MAJOR_CLEAR_TEXT
+            : COLORS.CLEAR_TEXT,
       majorClear: lines >= 4,
       lineType: allClear ? clearName : "",
       // Trash Up reuses the celebratory All Clear animation without ever
@@ -496,12 +517,12 @@ export class ClassicGameplay extends GameplayContract {
             game.playfield.layout.rows - 2,
             clearedRows.length
               ? clearedRows.reduce((sum, row) => sum + row, 0) /
-                  clearedRows.length
+              clearedRows.length
               : game.playfield.layout.rows - 2,
           ),
         ) *
-          CELL *
-          game.playfield.layout.scale,
+        CELL *
+        game.playfield.layout.scale,
     });
     this.pendingSpin = "";
     this.pendingSpinOrder = 4;
@@ -535,8 +556,10 @@ export class ClassicGameplay extends GameplayContract {
       // pass before the next scan, just like a falling-mino attack. That
       // resolver's follow-up scans are chain continuations, not a new lock.
       const clustered = this.gravityType(game) === "clustered";
-      if (clustered) game.board.beginClusteredFall();
-      this.resolve = { phase: "fall", initialScan: !clustered };
+      // Do not start clustered gravity yet: it rebuilds the board and erases
+      // Metal's existing renderY origin, making its mandatory one-row crush
+      // visibly snap. Begin that secondary collapse after Metal lands.
+      this.resolve = { phase: "fall", initialScan: !clustered, afterMetalCrushFall: clustered };
       return;
     }
     if (this.resolve.phase === "mark") {
@@ -586,8 +609,8 @@ export class ClassicGameplay extends GameplayContract {
       const cleared = preserveMarkedResolve && this.resolve.rows.length
         ? game.board.clearRows(this.resolve.rows, gravity, true)
         : this.resolve.cellClear
-        ? game.board.resolveMarkedCells(gravity)
-        : game.board.resolveMarkedLines(gravity);
+          ? game.board.resolveMarkedCells(gravity)
+          : game.board.resolveMarkedLines(gravity);
       // A durability-only detection removes no cells, so Board has no reason
       // to invoke gravity itself. Clustered mode still needs its full animated
       // collapse before the next detection.
@@ -601,6 +624,7 @@ export class ClassicGameplay extends GameplayContract {
         0,
       );
       const clearedTiles = game.board.lastClearedTiles.map((tile) => ({ ...tile }));
+      game.collectDefenseFromDestroyedTiles(clearedTiles);
       this.resolveChainCount = this.resolve.isColorClear
         ? this.resolve.colorGroups.length
         : this.resolve.rows.length;
@@ -608,10 +632,10 @@ export class ClassicGameplay extends GameplayContract {
         game.playfield.effects.burst(
           tile.x,
           tile.y,
-        game.playfield.renderer.colorFor(tile, tile.baseColor),
-        CLEAR_PARTICLE_COUNT_PER_MINO,
-        LINE_CLEAR_PARTICLE_HORIZONTAL_FORCE,
-        LINE_CLEAR_PARTICLE_VERTICAL_FORCE,
+          game.playfield.renderer.colorFor(tile, tile.baseColor),
+          CLEAR_PARTICLE_COUNT_PER_MINO,
+          LINE_CLEAR_PARTICLE_HORIZONTAL_FORCE,
+          LINE_CLEAR_PARTICLE_VERTICAL_FORCE,
         ),
       );
       game.collectGodGems(game.board.lastClearedTiles);
@@ -636,6 +660,11 @@ export class ClassicGameplay extends GameplayContract {
     // visual landing time, even while other groups remain in the air.
     this.playClusteredImpacts(game);
     if (stillFalling) return;
+    if (this.resolve.afterMetalCrushFall) {
+      const moved = game.board.beginClusteredFall();
+      this.resolve = { phase: "fall", initialScan: false };
+      if (moved) return;
+    }
     this.scan(game, Boolean(this.resolve.initialScan));
   }
 

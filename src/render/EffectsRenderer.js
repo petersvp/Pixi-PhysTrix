@@ -40,6 +40,18 @@ export class EffectsRenderer {
     this.lightningGraphic.label = "lightningEffect";
     this.root.addChild(this.lightningGraphic);
     this.lightningEffects = [];
+    this.persistentEmitters = new Map();
+  }
+
+  setPersistentEmitters(owner, emitters = []) {
+    const previous = this.persistentEmitters.get(owner) || new Map();
+    const next = new Map();
+    emitters.forEach((emitter) => {
+      if (!emitter?.id || !Number.isFinite(emitter.x) || !Number.isFinite(emitter.y)) return;
+      const state = previous.get(emitter.id) || { cooldown: Math.random() * 140 };
+      next.set(emitter.id, { ...state, ...emitter });
+    });
+    this.persistentEmitters.set(owner, next);
   }
 
   lightning(origin, targets, {
@@ -240,6 +252,33 @@ export class EffectsRenderer {
   }
 
   update(deltaMS) {
+    this.persistentEmitters.forEach((emitters) => emitters.forEach((emitter) => {
+      emitter.cooldown -= deltaMS;
+      if (emitter.cooldown > 0) return;
+      emitter.cooldown += 120 + Math.random() * 100;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 22 + Math.random() * 34;
+      let x = emitter.x;
+      let y = emitter.y;
+      if (emitter.border) {
+        const side = Math.floor(Math.random() * 4);
+        const minX = emitter.minX;
+        const maxX = emitter.maxX;
+        const minY = emitter.minY;
+        const maxY = emitter.maxY;
+        if (side === 0) { x = minX + Math.random() * (maxX - minX); y = minY; }
+        if (side === 1) { x = maxX; y = minY + Math.random() * (maxY - minY); }
+        if (side === 2) { x = minX + Math.random() * (maxX - minX); y = maxY; }
+        if (side === 3) { x = minX; y = minY + Math.random() * (maxY - minY); }
+      }
+      this.spawn(
+        x,
+        y,
+        emitter.color,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed - 18,
+      );
+    }));
     if (this.lightningEffects.length) {
       this.lightningGraphic.clear();
       const completed = [];

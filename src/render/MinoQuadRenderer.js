@@ -9,6 +9,9 @@
 import { CELL } from "../config/gameplayConstants.js";
 import { createMinoShader } from "./MinoShader.js";
 
+const NOISE_SCENE_WIDTH = 900;
+const NOISE_SCENE_HEIGHT = 700;
+
 export class MinoQuadRenderer {
   static geometries = new Map();
 
@@ -55,15 +58,26 @@ export class MinoQuadRenderer {
     cells.forEach((cell) => {
       const links = linksForCell(cell);
       const cellColor = cell.color ?? color;
+      const renderX = (cell.renderX ?? cell.x) + offsetX;
+      const renderY = (cell.renderY ?? cell.y) + offsetY;
+      // Keep fracture noise in the mino's authored board/body space. Do not
+      // use the Pixi world transform here: a parent filter may substitute a
+      // render-texture transform for that matrix.
+      const noiseSceneUv = [
+        (renderX * this.cellSize) / NOISE_SCENE_WIDTH,
+        (renderY * this.cellSize) / NOISE_SCENE_HEIGHT,
+        this.cellSize / NOISE_SCENE_WIDTH,
+        this.cellSize / NOISE_SCENE_HEIGHT,
+      ];
       const quad = new PIXI.Mesh({
         geometry: this.geometry,
-        shader: createMinoShader(cellColor, links, material),
+        shader: createMinoShader(cellColor, links, material, noiseSceneUv),
       });
       // Use source-alpha compositing for translucent shader faces and bevels.
       quad.blendMode = "normal";
       quad.position.set(
-        ((cell.renderX ?? cell.x) + offsetX) * this.cellSize,
-        ((cell.renderY ?? cell.y) + offsetY) * this.cellSize,
+        renderX * this.cellSize,
+        renderY * this.cellSize,
       );
       quad.alpha = alpha;
       container.addChild(quad);

@@ -54,7 +54,7 @@ export const GOD_ESSENCE_REWARD_FLIGHT = Object.freeze({
   frameGlowColor: 0xffdf38,
   frameGlowDistance: 20,
   frameGlowInnerStrength: 0.5,
-  frameGlowQuality: 0.3,
+  frameGlowQuality: 0.05,
   frameGlowBaseStrength: 2.5,
   frameGlowPulseStrength: 1.2,
   frameGlowPulsePeriodMs: 90,
@@ -127,9 +127,15 @@ export class Playfield {
     this.cols = cols;
     this.layout = createPlayfieldLayout({ cols, rows, cell, width, height, queueSize });
     this.localLayout = localLayout(this.layout);
+    // The scene/game root owns presentation filters. The playfield node below
+    // it is free to rotate for Upside Down and slotted-rotation punches.
+    this.gameRoot = root;
     this.root = new PIXI.Container();
     this.root.label = "playfield";
     this.root.position.set(this.layout.centerX, this.layout.centerY);
+    globalThis.gr = this.gameRoot;
+    globalThis.pf = this.root;
+    globalThis.up ??= true;
     this.announcements = new PIXI.Container();
     this.announcements.label = "playfieldAnnouncements";
     root.addChild(this.root, this.announcements);
@@ -212,6 +218,7 @@ export class Playfield {
       this.minoLayer,
       this.glowLayer,
       this.frameLayer,
+      this.effectsLayer,
       this.material,
       this.trashMaterial,
       cols,
@@ -233,7 +240,7 @@ export class Playfield {
     // as the HUD meter and Queue panel.
     this.root.addChild(this.rewardFlightLayer);
     this.punch = { scale: 0, y: 0, rotation: 0, life: 0 };
-    this.spinRotation = { value: 0, life: 0, total: 0 };
+    this.spinRotation = { value: 0, current: 0, life: 0, total: 0 };
     this.presentationTimeMs = 0;
     this.blindTarget = false;
     this.blindBlend = 0;
@@ -327,6 +334,7 @@ export class Playfield {
         innerStrength: config.frameGlowInnerStrength,
         color: config.frameGlowColor,
         quality: config.frameGlowQuality,
+        alpha: 0.5,
       });
       this.frameLayer.filters = [...(this.frameLayer.filters || []), this.rewardFrameGlow];
     }
@@ -456,7 +464,7 @@ export class Playfield {
   // This mirrors the marked-clear mino treatment (rounded outline plus glow),
   // but red and independently timed because a sealed chain must remain on
   // the board instead of entering the normal vanish path.
-  markLineSealBlockedTiles(cells = [], duration = 5_000) {
+  markLineSealBlockedTiles(cells = [], duration = 5_000, kind = "line-seal") {
     cells.forEach(({ x, y }) => {
       const layer = new PIXI.Container();
       layer.label = "lineSealBlockedMinoOutline";
@@ -475,7 +483,16 @@ export class Playfield {
         .stroke({ width: 3, color: 0xff5260, alpha: 1 });
       layer.addChild(graphic);
       this.lineSealOutlineLayer.addChild(layer);
-      this.lineSealOutlines.push({ graphic: layer, elapsed: 0, duration: Math.max(1, duration) });
+      this.lineSealOutlines.push({ graphic: layer, elapsed: 0, duration: Math.max(1, duration), kind });
+    });
+  }
+
+  finishBlockedOutlines(kind, duration = 1_000) {
+    this.lineSealOutlines.forEach((outline) => {
+      if (outline.kind !== kind) return;
+      outline.finishElapsed = 0;
+      outline.finishDuration = Math.max(1, duration);
+      outline.finishAlpha = outline.graphic.alpha;
     });
   }
 
@@ -492,6 +509,22 @@ export class Playfield {
   removePresentationFilter(filter) {
     if (!filter) return;
     this.root.filters = (this.root.filters || []).filter((entry) => entry !== filter);
+  }
+
+  refreshGameRootFilterArea() {
+    if (globalThis.up !== true) return;
+    const bounds = this.root.getLocalBounds();
+    const corners = [
+      { x: bounds.minX, y: bounds.minY },
+      { x: bounds.maxX, y: bounds.minY },
+      { x: bounds.minX, y: bounds.maxY },
+      { x: bounds.maxX, y: bounds.maxY },
+    ].map((point) => this.root.toLocal(this.root.toGlobal(point)));
+    const minX = Math.min(...corners.map((point) => point.x));
+    const minY = Math.min(...corners.map((point) => point.y));
+    const maxX = Math.max(...corners.map((point) => point.x));
+    const maxY = Math.max(...corners.map((point) => point.y));
+    this.root.filterArea = new PIXI.Rectangle(minX, minY, maxX - minX, maxY - minY);
   }
 
   setGodEssencePresentation({
@@ -528,6 +561,7 @@ export class Playfield {
 
     if (this.desaturationTarget && !this.desaturationFilter) {
       this.desaturationFilter = new PIXI.ColorMatrixFilter();
+      this.desaturationFilter.antialias = true;
       this.addPresentationFilter(this.desaturationFilter);
     }
     if (this.astigmatismTarget && !this.astigmatismFilter) {
@@ -557,6 +591,7 @@ export class Playfield {
     );
     this.physicsRenderer = new PhysicsRenderer(
       this.physicsLayer,
+      this.effectsLayer,
       this.material,
       this.trashMaterial,
       { attachment: this.attachmentMaterial, gem: this.gemMaterial, metal: this.metalMaterial, slippery: this.iceMaterial, bounce: this.jellyMaterial, filler: this.trashMaterial },
@@ -639,10 +674,11 @@ export class Playfield {
     this.addPunch(PLAYFIELD_MATCH_PUNCH);
   }
   spinPunch(rotationDirection = 1) {
-    // Spin feedback rotates board-space only. Rotating the outer Playfield
-    // container also rotates and can clip sibling HUD/effect render passes.
+    // Apply this to the same outer Playfield root as Upside Down so the whole
+    // playfield presentation punches together.
     this.spinRotation = {
       value: PLAYFIELD_SPIN_PUNCH.rotation * (Math.sign(rotationDirection) || 1),
+      current: 0,
       life: PLAYFIELD_SPIN_PUNCH.duration,
       total: PLAYFIELD_SPIN_PUNCH.duration,
     };
@@ -680,7 +716,7 @@ export class Playfield {
       outerStrength: PLAYFIELD_LIFE_LOSS_PUNCH.glowStrength,
       innerStrength: 0.25,
     });
-    this.root.filters = [...(this.root.filters || []), filter];
+    this.gameRoot.filters = [...(this.gameRoot.filters || []), filter];
     this.lifeLossGlow = { filter, elapsed: 0 };
   }
   addPunch({ scale, y, rotation, duration, shake = 0 }) {
@@ -688,11 +724,12 @@ export class Playfield {
   }
   update(deltaMS) {
     this.effects.update(deltaMS);
+    const spinWasActive = this.spinRotation.life > 0;
     if (this.spinRotation.life > 0) {
       this.spinRotation.life = Math.max(0, this.spinRotation.life - deltaMS);
       const amount = this.spinRotation.total ? this.spinRotation.life / this.spinRotation.total : 0;
-      this.gridRoot.rotation = this.spinRotation.value * amount;
-    } else this.gridRoot.rotation = 0;
+      this.spinRotation.current = this.spinRotation.value * amount;
+    } else this.spinRotation.current = 0;
     this.rewardFlights = this.rewardFlights.filter((flight) => {
       flight.elapsed += deltaMS;
       if (flight.merging) {
@@ -758,6 +795,15 @@ export class Playfield {
     });
     this.lineSealOutlines = this.lineSealOutlines.filter((outline) => {
       outline.elapsed += deltaMS;
+      if (outline.finishDuration) {
+        outline.finishElapsed += deltaMS;
+        const finishProgress = Math.min(1, outline.finishElapsed / outline.finishDuration);
+        outline.graphic.alpha = outline.finishAlpha * (1 - finishProgress);
+        if (finishProgress < 1) return true;
+        outline.graphic.removeFromParent();
+        outline.graphic.destroy({ children: true });
+        return false;
+      }
       const progress = Math.min(1, outline.elapsed / outline.duration);
       outline.graphic.alpha = 1 - progress;
       if (progress < 1) return true;
@@ -771,7 +817,9 @@ export class Playfield {
     this.chromaticEchoBlend = Math.max(0, Math.min(1, this.chromaticEchoBlend + (this.chromaticEchoTarget ? transitionStep : -transitionStep)));
     this.queueJamBlend = Math.max(0, Math.min(1, this.queueJamBlend + (this.queueJamTarget ? transitionStep : -transitionStep)));
     const targetRotation = this.upsideDownTarget ? Math.PI : 0;
+    const previousUpsideDownRotation = this.upsideDownRotation;
     this.upsideDownRotation += Math.max(-transitionStep * Math.PI, Math.min(transitionStep * Math.PI, targetRotation - this.upsideDownRotation));
+    const upsideDownRotationChanged = this.upsideDownRotation !== previousUpsideDownRotation;
     if (this.desaturationFilter) {
       this.desaturationFilter.reset();
       this.desaturationFilter.saturate(-this.desaturationBlend);
@@ -811,8 +859,13 @@ export class Playfield {
           pulse * (1 - progress);
     }
     if (this.punch.life <= 0) {
-      this.root.scale.set(1);
-      this.root.rotation = this.upsideDownRotation;
+      // Do not continuously overwrite the idle transform. Apart from making
+      // DevTools inspection impossible, this needlessly dirties the parent
+      // filter's render bounds every frame.
+      if (spinWasActive || upsideDownRotationChanged) {
+        this.root.rotation = this.upsideDownRotation + this.spinRotation.current;
+      }
+      this.refreshGameRootFilterArea();
       return;
     }
     this.punch.life = Math.max(0, this.punch.life - deltaMS);
@@ -822,14 +875,15 @@ export class Playfield {
     this.root.x = this.layout.centerX +
       this.punch.shake * amount * Math.sin((1 - amount) * Math.PI * 12);
     this.root.y = this.layout.centerY + this.punch.y * amount;
-    this.root.rotation = this.upsideDownRotation + this.punch.rotation * amount;
+    this.root.rotation = this.upsideDownRotation + this.spinRotation.current + this.punch.rotation * amount;
+    this.refreshGameRootFilterArea();
     if (!this.punch.life) {
       this.root.scale.set(1);
       this.root.x = this.layout.centerX;
       this.root.y = this.layout.centerY;
-      this.root.rotation = this.upsideDownRotation;
+      this.root.rotation = this.upsideDownRotation + this.spinRotation.current;
       if (this.lifeLossGlow) {
-        this.root.filters = (this.root.filters || []).filter(
+        this.gameRoot.filters = (this.gameRoot.filters || []).filter(
           (filter) => filter !== this.lifeLossGlow.filter,
         );
         this.lifeLossGlow = null;
