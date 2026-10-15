@@ -421,6 +421,12 @@ export class GameManager {
     const spawnedGodEssenceReward = Boolean(reward);
     this.godEssence = this.queue.pendingGems;
     this.active = this.createSpawnPiece(type);
+    // A pocketed PM may intentionally retain its rotated geometry. Restore
+    // the matching orientation index too; a fresh queue definition has no
+    // `facing`, and therefore continues to spawn at zero as before. Do not
+    // restore action history here: holding is an action and must not itself
+    // qualify the returned PM for a spin.
+    if (Number.isInteger(type?.facing)) this.active.facing = type.facing;
     if (reward) {
       this.godEssenceQueuedWallets.shift();
       this.active.godEssenceReward = true;
@@ -550,7 +556,7 @@ export class GameManager {
     const burdens = this.godEssenceItems.filter((item) =>
       item.polarity === "others" &&
       !["filler", "metal"].includes(item.id) &&
-      ["InflictPassiveEffect", "SetQueueMaterial"].includes(item.action?.name) &&
+      item.burdenOpeningEligible === true &&
       this.godEssenceItemMatchesCurrentMode(item) &&
       this.godEssenceItemMeetsRequirements(item));
     if (!burdens.length) return false;
@@ -1161,8 +1167,12 @@ export class GameManager {
       });
       return remaining;
     };
-    if (type === "attachments" && this.session?.roomRules?.pvp?.pmOrderAttack !== false)
-      this.queue.addAttachments(remainingAfterDefense());
+    if (type === "attachments" && this.session?.roomRules?.pvp?.pmOrderAttack !== false) {
+      const material = this.session?.roomRules?.pvp?.pmOrderHardMode
+        ? "default"
+        : "attachment";
+      this.queue.addAttachments(remainingAfterDefense(), material);
+    }
     // Gems are a reward, not a hostile attack. Shield never rejects them.
     if (type === "gems" && this.session?.roomRules?.pvp?.godEssence !== false) this.queue.addGems(count);
     if (type === "god-essence-item" && this.session?.roomRules?.pvp?.godEssence !== false) {
@@ -1290,6 +1300,10 @@ export class GameManager {
     const outgoing = {
       ...this.active.definition,
       matrix: this.active.matrix.map((row) => row.slice()),
+      // The matrix alone is not sufficient for a held rotated T. Spin
+      // detection uses facing to select its front corners, so retain the
+      // orientation that produced this matrix when it returns from pocket.
+      facing: this.active.facing,
       color: this.active.color,
       colorIndex: this.active.colorIndex,
       palette: this.active.palette,

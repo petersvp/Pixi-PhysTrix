@@ -147,7 +147,11 @@ export class PhysicsGameplay extends GameplayContract {
     this.minoDropsAfterScan = false;
     const drops = game.takePendingMinoDrops();
     if (!drops) return false;
-    this.minoDropSpawnBatch = this.physics.spawnMetalDrops(drops, game.queueRandom);
+    this.minoDropSpawnBatch = this.physics.spawnMetalDrops(
+      drops,
+      game.queueRandom,
+      game.session?.roomRules?.pvp?.minoDropsResilient === true,
+    );
     // A fresh controlled PM cannot safely coexist with drops entering its
     // spawn rows. Wait for the first falling metal mino to make contact.
     if (spawn && !this.minoDropSpawnPending) {
@@ -368,7 +372,7 @@ export class PhysicsGameplay extends GameplayContract {
         this.physics.applyEarthquake(game.queueRandom, pulse.intensity);
       });
     }
-    const result = this.physics.step(ms);
+    const result = this.physics.step(ms, undefined, game.queueRandom);
     if (game.hasGodEssencePassiveEffect("no-chains"))
       game.notifyNoChainsBlocked?.(result.noChainsCells);
     else

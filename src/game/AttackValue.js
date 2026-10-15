@@ -53,7 +53,8 @@ export function pmOrderAttackValue(lines, spin, pvp = {}, combo = 0, backToBack 
   const bounty = pvp.bounty === false ? 1 : Number(pvp.bountyMultiplier) || 1;
   // PM Order attaches two minos per earned attack point by default. The room
   // setting remains an explicit strength multiplier for custom matches.
-  const setting = Number(pvp.pmOrderMultiplier) || 2;
+  const configuredMultiplier = Number(pvp.pmOrderMultiplier);
+  const setting = Number.isFinite(configuredMultiplier) ? configuredMultiplier : 2;
   return attackValue({
     lines,
     miniTSpin: spin === "T-SPIN MINI" && lines === 1,
@@ -78,7 +79,9 @@ export function godEssenceValue(lines, spin, pvp = {}, combo = 0, backToBack = f
     combo,
     backToBack,
     bounty,
-    setting: 1,
+    setting: Number.isFinite(Number(pvp.godEssenceMultiplier))
+      ? Number(pvp.godEssenceMultiplier)
+      : 1,
   });
 }
 
@@ -92,6 +95,8 @@ export function minoDropAttackValue(lines, spin, pvp = {}, combo = 0, backToBack
     combo,
     backToBack,
     bounty,
-    setting: Number(pvp.minoDropsMultiplier) || 1,
+    setting: Number.isFinite(Number(pvp.minoDropsMultiplier))
+      ? Number(pvp.minoDropsMultiplier)
+      : 1,
   });
 }

@@ -1,7 +1,7 @@
 // Converts an attack value into independent falling-mino states. Each attack
 // point makes two rolls. A lane may receive up to three rolls; those rolls
 // represent the same mino's health instead of stacking multiple minos there.
-export const planMinoDrops = (attackValue, width, random = Math.random) => {
+export const planMinoDrops = (attackValue, width, random = Math.random, resilient = false) => {
   const columns = Math.max(1, Math.floor(Number(width) || 1));
   const rolls = Math.min(
     columns * 3,
@@ -35,5 +35,6 @@ export const planMinoDrops = (attackValue, width, random = Math.random) => {
       material: hits === 1 ? "attachment" : "metal",
       metalLives: hits === 1 ? undefined : hits,
       broken: hits === 2,
+      resilient: Boolean(resilient),
     }));
 };

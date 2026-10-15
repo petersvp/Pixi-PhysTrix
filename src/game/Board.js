@@ -484,8 +484,9 @@ export class Board {
     colorCount = 0,
     settleImmediately = false,
     animateFall = false,
+    resilient = false,
   } = {}) {
-    const drops = planMinoDrops(count, this.cols, random);
+    const drops = planMinoDrops(count, this.cols, random, resilient);
     const paletteSize = Math.max(0, Math.floor(Number(colorCount) || 0));
     for (let index = 0; index < drops.length; index += 1) {
       const drop = drops[index];
@@ -510,6 +511,7 @@ export class Board {
         material: drop.material,
         defenseReward: true,
         ...(drop.metalLives ? { metalLives: drop.metalLives } : {}),
+        ...(drop.resilient ? { resilientMinoDrop: true } : {}),
         pieceId: `metal-drop-${Date.now()}-${index}`,
         visualLinks: { top: false, right: false, bottom: false, left: false },
         broken: { top: drop.broken, right: drop.broken, bottom: drop.broken, left: drop.broken },
@@ -521,12 +523,15 @@ export class Board {
     }
     return drops.length;
   }
-  protectMetalCells(cells) {
+  protectMetalCells(cells, random = Math.random) {
     const protectedCells = new Set();
     cells.forEach(({ x, y }) => {
       const tile = this.get(x, y);
       if (tile?.material !== "metal" || tile.trash) return;
       protectedCells.add(`${x},${y}`);
+      // Resilient Falling Weight drops still block the scanner every time,
+      // but only lose a durability point on one out of three hits.
+      if (tile.resilientMinoDrop && random() >= 1 / 3) return;
       const lives = Math.max(1, Math.floor(Number(tile.metalLives) || 3));
       if (lives > 2) {
         tile.metalLives = 2;

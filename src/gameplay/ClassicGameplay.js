@@ -105,6 +105,7 @@ export class ClassicGameplay extends GameplayContract {
       colorCount: chain.colorCount,
       settleImmediately: !clustered,
       animateFall: !clustered,
+      resilient: game.session?.roomRules?.pvp?.minoDropsResilient === true,
     });
     if (clustered) game.board.beginClusteredFall();
     this.resolve = { phase: "fall", initialScan: false };
@@ -572,7 +573,7 @@ export class ClassicGameplay extends GameplayContract {
       // mino. Trash follows its own 3 -> 2 -> 1 durability path. Do this at
       // the moment marked cells resolve, not while the highlight is starting.
       const clearCells = game.board.protectTrashCells(
-        game.board.protectMetalCells(matchedCells),
+        game.board.protectMetalCells(matchedCells, game.queueRandom),
       );
       const clearKeys = new Set(clearCells.map(({ x, y }) => `${x},${y}`));
       matchedCells.forEach(({ x, y }) => {

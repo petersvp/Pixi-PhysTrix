@@ -46,6 +46,7 @@ export class PieceQueue {
     // Only queue-disabled games need deferred PM Order mutations: there is no
     // visible future PM to mutate until the next spawn is drawn.
     this.pendingAttachments = 0;
+    this.pendingAttachmentMaterial = "attachment";
     this.pendingGems = 0;
     // Material effects operate on whole upcoming PMs. Existing previews are
     // changed immediately; this FIFO owns the remainder when an effect
@@ -58,14 +59,17 @@ export class PieceQueue {
     // converted.
     this.persistentMaterial = null;
   }
-  addAttachments(count = 0) {
+  addAttachments(count = 0, material = "attachment") {
     const total = Math.max(0, Math.floor(Number(count) || 0));
     // Every visible queue mutation happens immediately, with replacement, so
     // a large attack can grow the same PM several times. The sole deferred
     // case is a disabled queue: the entire attack belongs to the next PM.
     if (!total) return 0;
     if (!this.items.length) {
-      if (this.targetSize === 0) this.pendingAttachments += total;
+      if (this.targetSize === 0) {
+        this.pendingAttachments += total;
+        this.pendingAttachmentMaterial = material;
+      }
       return this.targetSize === 0 ? total : 0;
     }
     // Item blocks are complete authored rewards/attacks, not ordinary PMs.
@@ -78,7 +82,7 @@ export class PieceQueue {
     let applied = 0;
     for (let index = 0; index < total; index += 1) {
       const item = candidates[Math.floor(this.random() * candidates.length)];
-      if (this.attachTo(item)) applied += 1;
+      if (this.attachTo(item, material)) applied += 1;
     }
     return applied;
   }
@@ -323,7 +327,7 @@ export class PieceQueue {
       // PM. `attachTo` rebuilds its matrix every time, so every attachment is
       // fused and rotates with the resulting polyomino.
       while (this.pendingAttachments > 0) {
-        this.attachTo(item);
+        this.attachTo(item, this.pendingAttachmentMaterial);
         this.pendingAttachments -= 1;
       }
     }

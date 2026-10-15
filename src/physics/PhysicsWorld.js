@@ -558,8 +558,8 @@ export class PhysicsWorld {
       this.onLockedPolyominoCreated?.({ body, data });
     });
   }
-  spawnMetalDrops(count = 0, random = Math.random) {
-    const drops = planMinoDrops(count, this.cols, random);
+  spawnMetalDrops(count = 0, random = Math.random, resilient = false) {
+    const drops = planMinoDrops(count, this.cols, random, resilient);
     if (!drops.length) return [];
     const {
       Dynamics,
@@ -589,6 +589,7 @@ export class PhysicsWorld {
         material: drop.material,
         defenseReward: true,
         ...(drop.metalLives ? { metalLives: drop.metalLives } : {}),
+        ...(drop.resilient ? { resilientMinoDrop: true } : {}),
         marked: false,
         visualLinks: { top: false, right: false, bottom: false, left: false },
         broken: { top: drop.broken, right: drop.broken, bottom: drop.broken, left: drop.broken },
@@ -1123,7 +1124,7 @@ export class PhysicsWorld {
     });
     return this.fractureBodies(brokenByBody);
   }
-  destroyMarked() {
+  destroyMarked(random = Math.random) {
     const vanishedLines = this.vanish.consumeLines();
     const damagedMetal = [];
     const markedByBody = new Map(
@@ -1137,6 +1138,9 @@ export class PhysicsWorld {
           if (tile.material !== "metal") return true;
           const lives = Math.max(1, Math.floor(Number(tile.metalLives) || 3));
           tile.marked = false;
+          // A resilient Falling Weight mino remains in the field when the
+          // scanner's one-in-three durability roll does not succeed.
+          if (tile.resilientMinoDrop && random() >= 1 / 3) return false;
           if (lives > 2) {
             tile.metalLives = 2;
             tile.broken = { top: true, right: true, bottom: true, left: true };
@@ -1162,7 +1166,7 @@ export class PhysicsWorld {
     this.vanish.reset();
     return { vanished, vanishedLines, damagedMetal };
   }
-  step(ms, now = performance.now()) {
+  step(ms, now = performance.now(), random = Math.random) {
     this.bodies.forEach((body) => this.updateTemporaryMass(body, ms));
     this.world.Step(Math.min(ms / 1000, 1 / 30), 8, 3);
     this.world.ClearForces();
@@ -1172,7 +1176,7 @@ export class PhysicsWorld {
     // path, preserving all broken-edge and component segmentation behavior.
     const broken = this.breakPenetratingMinos();
     const destroyed = this.vanish.due(now)
-      ? this.destroyMarked()
+      ? this.destroyMarked(random)
       : { vanished: [], vanishedLines: [], damagedMetal: [] };
     return { ...scan, ...destroyed, broken };
   }
